@@ -5,7 +5,7 @@ import { CalendarCheck, Dumbbell, LibraryBig, PersonStanding, UserRound, Utensil
 import ProfileView from './ProfileView'
 import BookingView from './BookingView'
 import VerifyEmail, { startResendCooldown } from './VerifyEmail'
-import { useLocal } from './kw/useLocal'
+import { useFoodDiary } from './useFoodDiary'
 import ExercisesViewJs from './kw/ExercisesView.jsx'
 import FoodViewJs from './kw/FoodView.jsx'
 import { EXERCISES, FOODS } from './kw/data.js'
@@ -192,8 +192,7 @@ function Workouts({ session }: { session: Session }) {
   const [tab, setTab] = useState<Tab>('workouts')
   function goTab(next: Tab) { setTab(next); window.scrollTo({ top: 0 }) }
   // Food diary stays on this device only (no Supabase sync).
-  const [meals, setMeals] = useLocal<unknown[]>('athar-meals', [])
-  const [customFoods, setCustomFoods] = useLocal<unknown[]>('athar-foods', [])
+  const food = useFoodDiary(session.user.id)
 
   /** Saves a workout from the exercise library into the user's Supabase workouts (RLS applies). */
   async function saveLibraryLog(item: { name: string; sets: number; reps: number; weight: number }) {
@@ -323,10 +322,24 @@ function Workouts({ session }: { session: Session }) {
       )}
       {tab === 'food' && (
         <main className="kw-scope">
-          <p className="kw-notice" role="note">سجل الغذاء يبقى محفوظاً على هذا الجهاز فقط ولا يُرسل إلى Supabase.</p>
-          <FoodView foods={FOODS} meals={meals} onAddMeal={(m: unknown) => setMeals((old) => [...old, m])}
-            onDeleteMeal={(id: string) => setMeals((old) => old.filter((m) => (m as { id: string }).id !== id))}
-            customFoods={customFoods} onAddCustomFood={(f: unknown) => setCustomFoods((old) => [...old, f])} calorieGoal={2000} />
+          <p className="kw-notice" role="note">سجل الغذاء محفوظ بأمان في حسابك، وتشوفه من أي جهاز تسجّل منه دخولك.</p>
+          {food.status === 'loading' && <p className="kw-notice" role="status">جاري تحميل سجل الغذاء…</p>}
+          {food.status === 'error' && (
+            <p className="kw-notice error" role="alert">ما قدرنا نحمّل سجل الغذاء من حسابك. شيّك على الإنترنت. <button type="button" className="link" onClick={food.reload}>حاول مرة ثانية</button></p>
+          )}
+          {food.problem && (
+            <p className="kw-notice error" role="alert">{food.problem} <button type="button" className="link" onClick={food.dismissProblem}>تمام</button></p>
+          )}
+          {food.imported && <p className="kw-notice info" role="status">نقلنا {food.imported.meals} وجبة و{food.imported.foods} طعام خاص من هذا الجهاز إلى حسابك.</p>}
+          {food.offerImport && (
+            <section className="kw-notice" role="region" aria-label="نقل سجل الغذاء القديم">
+              <p>لقينا على هذا الجهاز سجل غذاء قديم ({food.legacyCount.meals} وجبة، {food.legacyCount.foods} طعام خاص). تبي تنقله إلى حسابك؟ ما راح نحذف شي من الجهاز، وما راح يتكرر لو نقلته مرتين.</p>
+              <button type="button" className="primary" disabled={food.importing} onClick={() => void food.importLegacy()}>{food.importing ? 'لحظة…' : 'انقل السجل لحسابي'}</button>{' '}
+              <button type="button" className="link" disabled={food.importing} onClick={food.skipLegacy}>لا، تجاهله</button>
+            </section>
+          )}
+          <FoodView foods={FOODS} meals={food.meals} onAddMeal={food.addMeal} onDeleteMeal={food.deleteMeal}
+            customFoods={food.customFoods} onAddCustomFood={food.addCustomFood} calorieGoal={2000} />
         </main>
       )}
       {tab === 'profile' && <ProfileView session={session} />}

@@ -85,7 +85,7 @@ export default function VerifyEmail({ email, notice, onBack }: { email: string; 
         <div className="hero-copy"><h1>أكّد إيميلك</h1><p>آخر خطوة قبل ما تبدأ.</p></div>
       </section>
       <section className="auth-panel">
-        <form className="card auth-card" onSubmit={verify}>
+        <form className="card auth-card" onSubmit={verify} noValidate>
           <p>أرسلنا رمز من 6 أرقام إلى <strong dir="ltr" className="verify-email">{email}</strong>. اكتبه هنا لتفعيل حسابك.</p>
           <label>رمز التحقق
             <input className="otp-input" dir="ltr" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
