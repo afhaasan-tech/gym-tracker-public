@@ -30,6 +30,14 @@ export function otpErrorMessage(e: Failure): string {
   return 'ما قدرنا نتحقق من الرمز. جرّب مرة ثانية.'
 }
 
+/** Arabic message for a failed "send a new code" request. */
+export function resendErrorMessage(e: Failure): string {
+  if (isRateLimited(e)) return 'ارسلنا لك رمز قبل شوي. انتظر الوقت المعروض وبعدين اطلب رمز جديد.'
+  if (e.code === 'email_address_invalid' || e.code === 'email_address_not_authorized') return 'ما نقدر نرسل رمز لهذا الإيميل. تأكد إنه إيميل صحيح.'
+  if (/failed to fetch|network/i.test(e.message ?? '')) return 'ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.'
+  return 'ما قدرنا نرسل الرمز. جرّب مرة ثانية بعد شوي.'
+}
+
 /**
  * Email verification screen: the user types the 6-digit code that Supabase Auth e-mailed them.
  * The account is only activated by `verifyOtp` on the server; nothing here grants access by itself.
@@ -72,7 +80,7 @@ export default function VerifyEmail({ email, notice, onBack }: { email: string; 
       const seconds = Number(/(\d+) seconds/.exec(err.message ?? '')?.[1])
       startResendCooldown(email, isRateLimited(err) && seconds > 0 ? seconds : RESEND_COOLDOWN_SECONDS)
       setCooldown(remainingCooldown(email))
-      setError(otpErrorMessage(err)); return
+      setError(resendErrorMessage(err)); return
     }
     startResendCooldown(email); setCooldown(RESEND_COOLDOWN_SECONDS); setWrong(0); setCode('')
     setInfo('أرسلنا لك رمز جديد. الرمز القديم ما عاد يشتغل.')

@@ -72,6 +72,7 @@ await step('resend: button works once, then shows a countdown and is disabled (c
   const cd = page.getByRole('button', { name: /بعد \d+ ثانية/ }); await cd.waitFor({ timeout: 15000 }); assert.ok(await cd.isDisabled())
   resendResult = (await page.getByRole('status').count()) ? 'sent' : 'provider error shown: ' + (await page.getByRole('alert').first().innerText())
   console.log('   resend outcome:', resendResult)
+  assert.ok(!/الرمز غلط/.test(resendResult), 'resend failure must not be reported as a wrong code')
 })
 await step('cooldown survives a refresh', async () => {
   await page.reload(); await page.getByLabel('الإيميل', { exact: true }).fill(U.email); await page.getByLabel('الرقم السري', { exact: true }).fill(U.password)
