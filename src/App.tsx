@@ -4,6 +4,7 @@ import { authErrorMessage, callAi, PHOTO_BUCKET, supabase, validatePhoto, type W
 import { CalendarCheck, Dumbbell, LibraryBig, PersonStanding, UserRound, Utensils, type LucideIcon } from 'lucide-react'
 import ProfileView from './ProfileView'
 import BookingView from './BookingView'
+import VerifyEmail, { startResendCooldown } from './VerifyEmail'
 import { useLocal } from './kw/useLocal'
 import ExercisesViewJs from './kw/ExercisesView.jsx'
 import FoodViewJs from './kw/FoodView.jsx'
@@ -55,6 +56,8 @@ function Auth() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  // Set after signup (or a login by a not-yet-verified account): shows the 6-digit code screen instead of the form.
+  const [pending, setPending] = useState<{ email: string; notice?: string } | null>(null)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -67,16 +70,24 @@ function Auth() {
       if (error) setError(authErrorMessage(error))
       else setInfo('إذا الإيميل مسجّل عندنا، راح توصلك رسالة فيها رابط تغيير الرقم السري.')
     } else if (signup) {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
       if (error) setError(authErrorMessage(error))
       // With email confirmation off, signUp returns a session and the app moves to the workouts page by itself.
-      else if (!data.session) setInfo('شيّك على إيميلك وأكّد حسابك، وبعدها سجّل دخول.')
+      // With it on there is no session until the e-mailed code is verified.
+      else if (!data.session) {
+        // Supabase hides whether an address exists: an already-registered address comes back with no identities and no e-mail is sent.
+        if (data.user && data.user.identities?.length === 0) setError('هذا الإيميل مسجّل من قبل. سجّل دخول بدل ما تسوي حساب جديد.')
+        else { startResendCooldown(email); setPending({ email }) }
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError(authErrorMessage(error))
+      if (error?.code === 'email_not_confirmed') setPending({ email, notice: 'حسابك ما انأكد بعد. اطلب رمز جديد واكتبه هنا.' })
+      else if (error) setError(authErrorMessage(error))
     }
     setBusy(false)
   }
+
+  if (pending) return <VerifyEmail email={pending.email} notice={pending.notice} onBack={() => { setPending(null); setSignup(false); setPassword('') }} />
 
   return (
     <main className="auth-shell">
@@ -452,5 +463,7 @@ export default function App() {
 
   if (!ready) return null
   if (session && recovering) return <SetNewPassword onDone={() => setRecovering(false)} />
+  // Defense in depth: even if a session ever exists for an address that was never verified, protected pages stay closed.
+  if (session && !session.user.email_confirmed_at) return <VerifyEmail email={session.user.email ?? ''} onBack={() => supabase.auth.signOut()} />
   return session ? <Workouts session={session} /> : <Auth />
 }
