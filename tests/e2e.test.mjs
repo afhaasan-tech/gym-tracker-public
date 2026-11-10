@@ -21,7 +21,7 @@ const png2 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQV
 const f1 = join(dir, 'one.png'), f2 = join(dir, 'two.png'), txt = join(dir, 'note.txt'), big = join(dir, 'big.png')
 writeFileSync(f1, png); writeFileSync(f2, png2); writeFileSync(txt, 'not an image'); writeFileSync(big, Buffer.alloc(5 * 1024 * 1024 + 2048, 1))
 
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
 const page = await (await browser.newContext({ viewport })).newPage()
 const shot = (name) => page.screenshot({ path: `docs/screenshots/e2e-${mode}-${name}.png`, fullPage: true })
 const heading = () => page.getByRole('heading', { name: 'تماريني' })

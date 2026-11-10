@@ -9,7 +9,7 @@ import { createClient } from '@supabase/supabase-js'
 import { randomBytes } from 'node:crypto'
 import assert from 'node:assert/strict'
 
-const base = process.argv[2] || 'https://gym-tracker-theta-topaz.vercel.app'
+const base = process.argv[2] || 'https://gym-tracker-afhaasan.vercel.app'
 const SUPABASE_URL = 'https://zbqdmebrxqshcsozamwg.supabase.co'
 const PUBLISHABLE_KEY = 'sb_publishable_9R6-GR8-_i78c3cnCgQCgQ_CKm7irzZ' // public by design (ships in the site bundle)
 const RUN = Date.now().toString(36)

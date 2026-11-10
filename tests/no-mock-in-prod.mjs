@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
-const base = process.argv[2] || 'https://gym-tracker-theta-topaz.vercel.app'
+const base = process.argv[2] || 'https://gym-tracker-afhaasan.vercel.app'
 const html = await (await fetch(base)).text()
 const scripts = [...html.matchAll(/src="(\/assets\/[^"]+\.js)"/g)].map((m) => m[1]); assert.ok(scripts.length, 'no bundle found')
 for (const s of scripts) {

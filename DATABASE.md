@@ -306,3 +306,30 @@ Already verified earlier by automated tests: non-admin accounts see no dashboard
 | Clicking أكّد / إلغاء in the live browser as admin, then refreshing | NOT RUN by the assistant |
 
 The test booking is left in status `cancelled`. `tests/admin-live.e2e.mjs` now contains a browser step that clicks Confirm then Cancel on its own run's test booking, reloads after each, and checks `payment_status` stays `pending`; run it locally with `node tests/admin-live.e2e.mjs` (hidden password prompt). It has not been executed, so the browser-level result is unverified. No payment processing was implemented.
+
+
+## Migration to the `afhaasan` Vercel account (2026-11-10)
+
+The previous Vercel team was deleted, so the old URL stopped serving (HTTP 404). The app was redeployed from this repository's `main` under a Hobby account.
+
+- **Production URL:** https://gym-tracker-afhaasan.vercel.app (aliases `gym-tracker-nu-tan.vercel.app`, `gym-tracker-git-main-afhaasan.vercel.app`). Deployment READY, HTTP 200, static assets (3D model, foods JSON) served.
+- **Same Supabase project and data** (unchanged: no new project, no data deleted, no RLS or auth change). Vercel holds only `VITE_SUPABASE_URL` and the publishable key. No secrets in Vercel; the OpenRouter key stays in Supabase Secrets.
+- **Deployment Protection (Vercel Authentication) was turned OFF** for this project so the public site is reachable without a Vercel login; all data protection is Supabase RLS.
+- **Independence audit:** no team name, Vercel config, CI workflow or hook in the repository; the only hardcoded host was the old URL (README and test defaults, now replaced); Edge Functions answer CORS with `*`, so the new origin needs no change; the bundle contains only the Supabase URL and publishable key. NOT verifiable from the tooling used: Supabase Auth Site URL / Redirect URLs (matters only for email links; email confirmation is off and the app has no password-reset flow), and the original private repo still shows a stale commit status pointing at the deleted team.
+
+### Tests run against the NEW production URL (2026-11-10)
+
+| Suite | Result |
+|---|---|
+| `tests/day9-live.e2e.mjs` (signup, login, logout, session, 3 workouts, cross-account RLS, forged user_id, profile fields + age, booking ownership, server price, protected payment_status, non-admin has no dashboard, logged-out access) | PASS 25 / 25 |
+| `tests/e2e.test.mjs` desktop, no AI (signup, workout save/delete, photo validation, private Storage signed URL, delete removes the object) | PASS 18 / 18 |
+| `tests/e2e.test.mjs` mobile, no AI | PASS 18 / 18 |
+| `tests/e2e.test.mjs` desktop WITH genuine AI (real Edge Functions + provider: summary, 7-day analysis, 429 on 6th request) | PASS 22 / 22 |
+| `tests/tabs-live.e2e.mjs` desktop + mobile (exercise library search + details dialog, food list + search, 3D anatomy canvas + model load, no page errors, no horizontal overflow) | PASS 12 / 12 |
+| `tests/no-mock-in-prod.mjs` | PASS |
+| `tests/admin-live.e2e.mjs` normal-user half (no dashboard, no `admins` access, no foreign bookings, logged out reads nothing) | PASS 5 / 5 |
+| Edge Functions: unauthenticated POST returns 401; CORS preflight from the new origin returns 200 | PASS |
+| Admin dashboard, admin booking list, admin-created booking, Confirm/Cancel in the browser on the NEW URL | BLOCKED: needs the admin password (run `node tests/admin-live.e2e.mjs`; hidden prompt). The admin dashboard and booking list were user-verified on the previous URL, and the same bundle and database are served now. Confirm/Cancel verified at the database level (see above). |
+
+Observation (not fixed, minor): the exercise details dialog closes with its close button but not with the Escape key.
+Extension status: Extension A (profile: name, date of birth, calculated age, height, weight) verified; Extension B (demo bookings with server-side price, protected `payment_status`, admin dashboard) verified except the browser-level admin steps above. No payment processing exists (Day 10).

@@ -1,6 +1,6 @@
 # Gym Tracker
 
-React + Vite + Supabase (Auth, Postgres with RLS, Storage, Edge Functions). Live: https://gym-tracker-theta-topaz.vercel.app
+React + Vite + Supabase (Auth, Postgres with RLS, Storage, Edge Functions). Live: https://gym-tracker-afhaasan.vercel.app
 
 ## Features
 **Core:** email/password sign up, log in, log out; add workouts (exercise, sets, reps, weight); history; delete; each user sees only their own data (RLS).
@@ -50,3 +50,7 @@ AI tests: `tests/fn-fallback.test.mjs` (simulated provider, 11 checks), `tests/a
 ## Running the live tests
 
 The tests in `tests/` create their own throwaway accounts. Set `TEST_EMAIL_BASE` to a mailbox you own (plus-addressing is used, e.g. `you+tag@example.com`) and never put passwords on the command line; `tests/admin-live.e2e.mjs` asks for the admin email and password interactively (password input is hidden). Screenshots in `docs/screenshots/` are redacted.
+
+## Deployment
+
+Production: https://gym-tracker-afhaasan.vercel.app (Vercel project `gym-tracker`, Hobby, deployed from `main` of this repository; framework preset Vite, Node 22). Required build-time variables: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (the publishable key is public by design; never put a service-role key or the OpenRouter key in the frontend). The AI key lives only in Supabase Edge Function secrets.

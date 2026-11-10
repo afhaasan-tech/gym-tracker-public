@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const [A] = JSON.parse(readFileSync(process.argv[2], 'utf8'))
 const file = join(tmpdir(), 'progress-demo.png')
-const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
+const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe' })
 const p = await b.newPage({ viewport: { width: 800, height: 600 } })
 await p.setContent(`<body style="margin:0;width:800px;height:600px;background:linear-gradient(135deg,#0E1013,#2b3a12 60%,#C6F135);display:flex;align-items:center;justify-content:center;font:700 64px Inter,system-ui,sans-serif;color:#F2F4F7"><div style="text-align:center">Progress Photo<div style="font-size:28px;font-weight:500;margin-top:12px;color:#C6F135">Week 1 · Gym Tracker</div></div></body>`)
 await p.screenshot({ path: file }); await b.close()
