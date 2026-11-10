@@ -1,0 +1,25 @@
+/* App shell: sidebar on desktop, fixed bottom bar on mobile. Also guard rails so the
+   ported Gym-Tracker KW views (own namespaced CSS) do not fight the host app's global styles. */
+.shell{display:flex;min-height:100vh}
+.sidebar{display:none}
+.content{flex:1;min-width:0;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+.bottom-nav{position:fixed;inset-inline:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(6,1fr);padding:6px 6px calc(6px + env(safe-area-inset-bottom));background:rgba(11,20,36,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.bottom-nav button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border:0;border-radius:12px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer;min-width:0}
+.bottom-nav button.active{color:var(--accent);background:var(--accent-soft)}
+.bottom-nav button:focus-visible,.nav-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (min-width:900px){
+  .bottom-nav{display:none}
+  .content{padding-bottom:0}
+  .sidebar{display:flex;flex-direction:column;gap:28px;position:sticky;top:0;align-self:flex-start;height:100vh;width:248px;flex:none;padding:24px 16px;background:var(--bg-2);border-inline-end:1px solid var(--line)}
+  .side-nav{display:flex;flex-direction:column;gap:6px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--muted);font:inherit;font-weight:600;font-size:16px;cursor:pointer;text-align:start}
+  .nav-item:hover{color:var(--text);background:var(--surface)}
+  .nav-item.active{color:var(--accent);background:var(--accent-soft);border-color:rgba(46,230,197,.35)}
+  .content>.topbar .brand{visibility:hidden}
+}
+
+.kw-scope{max-width:1180px;margin:0 auto;padding:24px clamp(12px,3vw,32px) 64px}
+.kw-scope .eyebrow{display:flex}
+.kw-scope h1,.kw-scope h2,.kw-scope h3{letter-spacing:0}
+.kw-scope button{font-family:inherit}
+.kw-notice{margin:0 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--muted);font-size:14px}

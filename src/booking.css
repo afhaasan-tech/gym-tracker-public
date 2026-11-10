@@ -1,0 +1,18 @@
+/* Booking (demo) screens - uses the host app's Gulf-night tokens. */
+.booking .demo-note{padding:12px 14px;border:1px solid rgba(255,200,87,.45);background:rgba(255,200,87,.1);color:var(--sand);border-radius:var(--radius-sm);font-weight:600}
+.booking .services{display:grid;gap:12px}
+.booking .service{position:relative;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer}
+.booking .service input{position:absolute;opacity:0;pointer-events:none}
+.booking .service.selected{border-color:var(--accent);background:var(--accent-soft)}
+.booking .service:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.booking .service-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.booking .price{color:var(--accent);font-weight:700;white-space:nowrap}
+.booking .chip.demo{align-self:flex-start;border-color:rgba(255,200,87,.5);color:var(--sand)}
+.booking .bookings{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.booking .bookings li{display:flex;flex-direction:column;gap:6px;padding:12px 0;border-top:1px solid var(--line)}
+.booking .bookings li:first-child{border-top:0}
+.booking .chips{display:flex;flex-wrap:wrap;gap:8px}
+.booking .admin-actions{display:flex;gap:8px}
+.booking .confirm dl{display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;margin:0}
+.booking .confirm dt{color:var(--muted)}
+.booking .confirm dd{margin:0;font-weight:600}
