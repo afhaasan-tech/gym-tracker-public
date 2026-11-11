@@ -54,3 +54,15 @@ The tests in `tests/` create their own throwaway accounts. Set `TEST_EMAIL_BASE`
 ## Deployment
 
 Production: https://gym-tracker-afhaasan.vercel.app (Vercel project `gym-tracker`, Hobby, deployed from `main` of this repository; framework preset Vite, Node 22). Required build-time variables: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (the publishable key is public by design; never put a service-role key or the OpenRouter key in the frontend). The AI key lives only in Supabase Edge Function secrets.
+
+## What the app does (Day 9 final)
+
+A Kuwait-first, multi-sport discovery platform (Arabic RTL) on React + Vite + Supabase + Vercel:
+
+- **Public homepage and guided journeys** (no account needed): private coach, group training, self-guided workouts, food, booking, sports catalog, search, coach profiles. Login is requested only when saving or booking, and the user returns to the same step.
+- **Roles, enforced in the database (RLS + SECURITY DEFINER functions + MFA claim), never in the UI:** Member (default for public signup), Coach (invitation-only), Super Admin (one) and Emergency Admin (one, limited). At most two privileged accounts can exist; Owner Dashboard access requires a TOTP (aal2) session; sensitive admin actions are written to an append-only audit log.
+- **Free:** sports discovery, coach browsing, exercise library, muscle selection, workout tracking, food diary for members. **Future paid (not active):** coach sessions, packages, advanced plans, nutrition plans/consultations. Prices and bookings are demonstrations; no payment is processed.
+- **«اختَر عضلتك» (Muscle Explorer):** pick a trainable muscle group on the 3D body and get its exercises.
+- Day 9 core: Supabase Auth (e-mail + password, e-mail code verification), per-user ownership and RLS on workouts/food/profile/bookings, editable profile with calculated age.
+
+Tests: `tests/db/` (local Postgres role/RLS suite, 175 checks) and `tests/*.e2e.mjs` (real browser against the deployed site; use pre-verified test accounts, see `tests/make-test-users-sql.mjs`).
