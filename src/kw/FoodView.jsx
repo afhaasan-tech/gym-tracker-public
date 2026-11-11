@@ -188,7 +188,7 @@ function FoodView({
   };
 
   return (
-    <main className="food-view" dir="rtl">
+    <main className="food-view" dir={getLang() === 'ar' ? 'rtl' : 'ltr'}>
       <div className="food-shell">
         <header className="food-header">
           <div>

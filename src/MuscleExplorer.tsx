@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { GROUPS, groupOfMuscleName, groupName } from './muscles'
 import { ExerciseCards } from './pages'
 import { findAnatomyInfo } from './kw/anatomyInfo.js'
-import { t } from './i18n'
+import { t, getLang } from './i18n';
 
 const Canvas = lazy(() => import('./kw/AnatomyCanvas.jsx'))
 const MODEL_URL = `${import.meta.env.BASE_URL}body.glb`
@@ -21,7 +21,7 @@ export default function MuscleExplorer({ session, go, initialGroup }: { session:
   const g = GROUPS.find((x) => x.id === group)
   const arabic = useMemo(() => { if (!part) return ''; for (const c of [part.name, part]) { try { const i = findAnatomyInfo(c) as { ar?: string } | null; if (i?.ar) return i.ar } catch { /* try next shape */ } } return '' }, [part])
   return (
-    <main className="screen market muscle-explorer" dir="rtl" lang="ar">
+    <main className="screen market muscle-explorer" dir={getLang() === 'ar' ? 'rtl' : 'ltr'} lang={getLang()}>
       <div className="page-title"><span className="eyebrow">Muscle Explorer</span><h1>{t("اختَر عضلتك")}</h1>
         <p className="muted">{t("دوّر المجسّم واضغط على العضلة اللي تبي تدرّبها، أو اختر المجموعة من القائمة، وبعدها شوف تمارينها.")}</p></div>
       <div className="me-layout">

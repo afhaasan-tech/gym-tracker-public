@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { t } from '../i18n'
+import { t, getLang } from '../i18n';
 
 const buttonStyle = {
   minHeight: 42,
@@ -479,7 +479,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
   ];
 
   return (
-    <section dir="rtl" lang="ar" aria-label={t("مجسّم العضلات ثلاثي الأبعاد")} aria-describedby={descriptionId} style={{ width: '100%', minWidth: 0 }}>
+    <section dir={getLang() === 'ar' ? 'rtl' : 'ltr'} lang={getLang()} aria-label={t("مجسّم العضلات ثلاثي الأبعاد")} aria-describedby={descriptionId} style={{ width: '100%', minWidth: 0 }}>
       <div style={{ position: 'relative', height: 'min(65vh, 620px)', minHeight: 340, overflow: 'hidden', borderRadius: 14, background: '#141d17', border: '1px solid #354438' }}>
         <div ref={containerRef} aria-hidden="true" style={{ width: '100%', height: '100%' }} />
         {status === 'loading' && <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#e4eddf', background: '#141d17e8', padding: 20, textAlign: 'center' }}>{t("جارٍ تحميل المجسّم…")}</div>}

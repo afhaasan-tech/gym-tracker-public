@@ -38,7 +38,7 @@ await step('English mode: no Arabic text left in the UI chrome (excluding user/c
   const { ctx, page } = await open(1280, 800, 'en'); const found = []
   for (const r of ROUTES) { await page.goto(base + r); await page.waitForTimeout(900)
     const hits = await page.evaluate(() => { const out = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-      for (let n = w.nextNode(); n; n = w.nextNode()) { const s = n.textContent.trim(); if (/[؀-ۿ]/.test(s) && !n.parentElement.closest('[lang="ar"],[data-user-content],svg')) out.push(s.slice(0, 60)) } return out })
+      for (let n = w.nextNode(); n; n = w.nextNode()) { const s = n.textContent.trim(); if (/[؀-ۿ]/.test(s) && !n.parentElement.closest('.lang-switch,[data-user-content],svg')) out.push(s.slice(0, 60)) } return out })
     if (hits.length) found.push(r + ' → ' + [...new Set(hits)].slice(0, 6).join(' ¦ ')) }
   await ctx.close(); assert.deepEqual(found, [], found.join(' // '))
 })

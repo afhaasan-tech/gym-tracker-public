@@ -210,3 +210,4 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 .choice-icon{color:var(--accent);margin-bottom:4px}
 .choice-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+@media(min-width:900px){.choice-grid{grid-template-columns:repeat(3,1fr)}}

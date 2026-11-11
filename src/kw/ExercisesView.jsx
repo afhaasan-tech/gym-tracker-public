@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { t } from '../i18n';
+import { t, getLang } from '../i18n';
 import {
   CalendarDays,
   ChevronLeft,
@@ -124,7 +124,7 @@ export default function ExercisesView({ exercises = EXERCISES, logs = [], onSave
     .slice(0, 6);
 
   return (
-    <main className="exercises-view" dir="rtl">
+    <main className="exercises-view" dir={getLang() === 'ar' ? 'rtl' : 'ltr'}>
       <header className="exercises-hero">
         <div>
           <span className="eyebrow"><Sparkles size={15} aria-hidden="true" /> {t("ڤورا / الحركة بوعي")}</span>
