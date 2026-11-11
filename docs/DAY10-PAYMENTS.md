@@ -54,3 +54,10 @@ Attempt states: `created`, `checkout_ready`, `captured`, `failed`, `cancelled`, 
 
 ## Data model (migration `20261113_payments.sql`, forward-only)
 `payment_attempts` (provider ids, amount, currency, idempotency key, checkout URL, status, failure reason, gateway response, timestamps), `payment_events` (append-only audit trail), guard trigger on `bookings`, `SECURITY DEFINER` functions `payment_start / payment_set_checkout / payment_apply / payment_overdue` executable by `service_role` only, `bookings` added to the Realtime publication (RLS still applies).
+
+## Verified facts discovered while integrating (real sandbox calls)
+- `reference.id` is limited to **35 characters** (a 36-char UUID gets HTTP 422). We send the attempt UUID **without dashes (32 hex)** as `order.id`, `order.reference` and `reference.id`, and map it back in the webhook (`requested_order_id`).
+- An **unpaid** checkout answers `get-payment-status?session_id=…` with `result: "NOT CAPTURED"`, `status: "PENDING"` and no `track_id`. That is *not* a decline. A terminal failure is only accepted when the provider also returns a `track_id` / `status: done`.
+- Sandbox KNET test page (`kpaytest.com.kw`): card `8888880000000001`, expiry `09/30`, any PIN → `CAPTURED`; any other expiry (e.g. `01/31`) → `NOT CAPTURED` with a `track_id` (the documented decline path).
+- The provider appends `?payment_id=…&result=…&track_id=…&requested_order_id=…` to `returnUrl`; the app **ignores all of it**.
+- The provider calls `notificationUrl` itself after payment (`notify_url_called: true`).

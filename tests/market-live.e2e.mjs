@@ -101,11 +101,11 @@ if (phase === 'public') {
   await step('minors service needs guardian consent; with consent a DEMO booking is created, price comes from the server, nothing is paid', async () => {
     await w.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click(); await w.getByText('لازم موافقة ولي الأمر').waitFor()
     await w.getByLabel(/ولي الأمر/).check(); await w.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click()
-    await w.getByRole('heading', { name: 'تم تثبيت الحجز التجريبي' }).waitFor(); await w.getByText('4.000 د.ك').waitFor(); await w.getByText('حجز تجريبي').first().waitFor()
-    assert.equal(await w.getByRole('button', { name: /ادفع|دفع/ }).count(), 0)
+    await w.getByRole('heading', { name: 'تم تثبيت الحجز' }).waitFor(); await w.getByText('4.000 د.ك').waitFor(); await w.getByText('الدفع تجريبي').first().waitFor()
+    assert.equal(await w.getByRole('button', { name: 'ادفع الآن' }).count(), 1)   // payment is only STARTED by the member's click; nothing is paid
   })
-  await step('my bookings lists it as demo with payment inactive; DB row has coach, server price, pending/pending', async () => {
-    await w.getByRole('button', { name: 'حجوزاتي' }).first().click(); await w.locator('.bookings li', { hasText: 'كرة صالات' }).waitFor(); await w.getByText('الدفع: غير مفعّل').first().waitFor()
+  await step('my bookings lists it with a Pending payment badge and Pay now; DB row has coach, server price, pending/pending', async () => {
+    await w.getByRole('button', { name: 'حجوزاتي' }).first().click(); await w.locator('.bookings li', { hasText: 'كرة صالات' }).waitFor(); await w.locator('[data-status="pending"]').first().waitFor()
     const ca = await signed(A); const { data } = await ca.from('bookings').select('*'); assert.equal(data.length, 1)
     assert.equal(Number(data[0].price_kwd), 4); assert.equal(data[0].payment_status, 'pending'); assert.equal(data[0].booking_status, 'pending'); assert.ok(data[0].coach_id)
     assert.ok((await ca.from('bookings').update({ payment_status: 'paid' }).eq('id', data[0].id)).error)
