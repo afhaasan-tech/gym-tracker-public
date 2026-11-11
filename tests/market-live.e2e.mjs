@@ -168,7 +168,7 @@ if (phase === 'coach3') {
   })
   await step('the published service is public; a member books the coach slot through the wizard', async () => {
     const id = (await client().from('services').select('id').eq('name', 'Test Yoga Session').single()).data.id
-    await login(q, M, '/book/' + id); await q.locator('.slot').first().waitFor(); await q.locator('.slot').first().click(); await q.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click(); await q.getByRole('heading', { name: 'تم تثبيت الحجز التجريبي' }).waitFor()
+    await login(q, M, '/book/' + id); await q.locator('.slot').first().waitFor(); await q.locator('.slot').first().click(); await q.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click(); await q.getByRole('heading', { name: 'تم تثبيت الحجز' }).waitFor()
   })
   await step('coach sees ONLY bookings of own services (with trainee name), confirms; member sees the confirmation; coach cannot touch payment', async () => {
     await open(p, '/coach/bookings'); await p.locator('li', { hasText: 'Test Yoga Session' }).waitFor(); await p.locator('li', { hasText: 'Test Yoga Session' }).getByRole('button', { name: 'أكّد' }).click(); await p.getByText('تم التحديث').waitFor()
