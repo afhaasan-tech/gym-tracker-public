@@ -5,12 +5,13 @@ import { chromium } from 'playwright-core'
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes, randomUUID } from 'node:crypto'
 import assert from 'node:assert/strict'
+import { cred } from './_creds.mjs'
 
 const base = process.argv[2] || 'https://gym-tracker-afhaasan.vercel.app'
 const SUPABASE_URL = 'https://zbqdmebrxqshcsozamwg.supabase.co'
 const PUBLISHABLE_KEY = 'sb_publishable_9R6-GR8-_i78c3cnCgQCgQ_CKm7irzZ' // public by design
 const RUN = Date.now().toString(36)
-const mk = (w) => ({ email: (process.env.TEST_EMAIL_BASE || 'your.name@gmail.com').replace('@', `+food${RUN}${w}@`), password: randomBytes(16).toString('hex') })
+const mk = (w) => cred(w === 'a' ? 2 : 3)
 const A = mk('a'), B = mk('b')
 const results = []
 const step = async (name, fn) => { try { await fn(); results.push('PASS'); console.log('PASS', name) } catch (e) { results.push('FAIL'); console.log('FAIL', name, '-', String(e?.message ?? e).split('\n')[0]) } }
@@ -32,11 +33,10 @@ const newCtx = async (seed) => {
   return ctx
 }
 const heading = (p) => p.getByRole('heading', { name: 'تماريني' })
-const goFood = async (p) => { await p.getByRole('button', { name: 'الغذاء', exact: true }).first().click(); await p.locator('.food-item').first().waitFor({ timeout: 20000 }) }
+const goFood = async (p) => { await p.goto(base + '#/food/diary'); await p.locator('.food-item').first().waitFor({ timeout: 20000 }) }
 async function signup(p, acc) {
-  await p.goto(base); await p.getByRole('button', { name: 'جديد؟ سوّي حساب' }).click()
-  await p.getByLabel('الإيميل', { exact: true }).fill(acc.email); await p.getByLabel('الرقم السري', { exact: true }).fill(acc.password)
-  await p.getByRole('button', { name: 'سجّل', exact: true }).click(); await heading(p).waitFor({ timeout: 20000 })
+  await p.goto(base + '#/login?next=%2Fworkouts'); await p.getByLabel('الإيميل', { exact: true }).fill(acc.email); await p.getByLabel('الرقم السري', { exact: true }).fill(acc.password)
+  await p.getByRole('button', { name: 'دخول', exact: true }).click(); await heading(p).waitFor({ timeout: 20000 })
 }
 async function login(p, acc) {
   await p.getByLabel('الإيميل', { exact: true }).fill(acc.email); await p.getByLabel('الرقم السري', { exact: true }).fill(acc.password)
@@ -66,12 +66,12 @@ await step('import: 2 meals + 1 custom food copied to the account, local data ke
 })
 await step('importing the same legacy data again creates NO duplicates', async () => {
   await p1.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('gt-food-import:')) localStorage.removeItem(k) })
-  await p1.reload(); await heading(p1).waitFor(); await goFood(p1)
+  await p1.reload(); await goFood(p1)
   await p1.getByRole('button', { name: 'انقل السجل لحسابي' }).click(); await p1.getByText(/نقلنا 2 وجبة/).waitFor({ timeout: 20000 })
   assert.equal((await rows(cA, 'food_entries')).length, 2); assert.equal((await rows(cA, 'custom_foods')).length, 1)
 })
 await step('after refresh: no import prompt and the imported meal is still listed', async () => {
-  await p1.reload(); await heading(p1).waitFor(); await goFood(p1); await meals(p1).first().waitFor()
+  await p1.reload(); await goFood(p1); await meals(p1).first().waitFor()
   assert.equal(await p1.getByRole('region', { name: 'نقل سجل الغذاء القديم' }).count(), 0); await p1.locator('.food-meal-row', { hasText: 'Legacy Rice' }).waitFor()
 })
 await step("food search still works on the existing food database (and finds the migrated custom food in 'my foods')", async () => {
@@ -87,7 +87,7 @@ await step('add a library food through the UI: saved with the user id, survives 
   const r = await rows(cA, 'food_entries'); assert.equal(r.length, before + 1)
   const row = r.find((x) => x.name === libName); assert.ok(row); assert.equal(row.entry_date, TODAY); assert.ok(Number(row.calories) > 0)
   const uid = (await cA.auth.getUser()).data.user.id; assert.equal(row.user_id, uid)
-  await p1.reload(); await heading(p1).waitFor(); await goFood(p1); await p1.locator('.food-meal-row', { hasText: libName }).first().waitFor()
+  await p1.reload(); await goFood(p1); await p1.locator('.food-meal-row', { hasText: libName }).first().waitFor()
 })
 await step('create a custom food through the UI: custom food + meal saved with calories and macros', async () => {
   await p1.getByRole('button', { name: /طعام مخصص/ }).click()
@@ -101,7 +101,7 @@ await step('create a custom food through the UI: custom food + meal saved with c
 // ---- cross-device sync ----
 const ctx2 = await newCtx(false); const p2 = await ctx2.newPage()
 await step('second device (fresh browser, no local data): same account shows the same meals and custom foods', async () => {
-  await p2.goto(base); await login(p2, A); await goFood(p2)
+  await p2.goto(base + '#/login?next=%2Fworkouts'); await login(p2, A); await goFood(p2)
   for (const n of ['Legacy Rice', libName, 'Day Test Bowl']) await p2.locator('.food-meal-row', { hasText: n }).first().waitFor({ timeout: 15000 })
   assert.equal(await p2.getByRole('region', { name: 'نقل سجل الغذاء القديم' }).count(), 0)
   await p2.getByRole('button', { name: /أطعمتي المخصصة/ }).click(); await p2.locator('.food-item', { hasText: 'Day Test Bowl' }).waitFor(); await p2.getByRole('button', { name: /جميع الأغذية/ }).click()
@@ -114,7 +114,7 @@ await step('a meal added on device 2 appears on device 1 without a manual reload
 await step('a delete on device 1 disappears on device 2 after refresh', async () => {
   await p1.locator('.food-meal-row', { hasText: 'Day Test Bowl' }).getByRole('button').click(); await p1.waitForTimeout(1500)
   assert.equal((await rows(cA, 'food_entries')).filter((x) => x.name === 'Day Test Bowl').length, 0)
-  await p2.reload(); await heading(p2).waitFor(); await goFood(p2); await p2.locator('.food-meal-row').first().waitFor(); assert.equal(await p2.locator('.food-meal-row', { hasText: 'Day Test Bowl' }).count(), 0)
+  await p2.reload(); await goFood(p2); await p2.locator('.food-meal-row').first().waitFor(); assert.equal(await p2.locator('.food-meal-row', { hasText: 'Day Test Bowl' }).count(), 0)
 })
 
 // ---- offline ----
@@ -157,7 +157,7 @@ await step('logged-out client reads and writes nothing in the food tables', asyn
   for (const t of ['food_entries', 'custom_foods']) { const r = await anon.from(t).select('*'); assert.ok(r.error || (r.data ?? []).length === 0, t); assert.ok((await anon.from(t).insert({ name: 'x', serving: '1', entry_date: TODAY })).error) }
 })
 await step('shared device: another account on the same browser is OFFERED the old local records (consent), can decline, and nothing is imported', async () => {
-  await p1.getByRole('button', { name: 'خروج', exact: true }).click(); await p1.getByRole('button', { name: 'دخول', exact: true }).waitFor()
+  await p1.getByRole('button', { name: 'خروج', exact: true }).click(); await p1.goto(base + '#/login?next=%2Fworkouts'); await p1.getByRole('button', { name: 'دخول', exact: true }).waitFor()
   await login(p1, B); await goFood(p1); await p1.getByRole('region', { name: 'نقل سجل الغذاء القديم' }).waitFor()
   await p1.getByRole('button', { name: 'لا، تجاهله' }).click(); await p1.waitForTimeout(800)
   assert.equal(await p1.getByRole('region', { name: 'نقل سجل الغذاء القديم' }).count(), 0)

@@ -1,9 +1,6 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { authErrorMessage, callAi, PHOTO_BUCKET, supabase, validatePhoto, type Workout } from './supabase'
-import { CalendarCheck, Dumbbell, LibraryBig, PersonStanding, UserRound, Utensils, type LucideIcon } from 'lucide-react'
-import ProfileView from './ProfileView'
-import BookingView from './BookingView'
 import VerifyEmail, { startResendCooldown } from './VerifyEmail'
 import { useFoodDiary } from './useFoodDiary'
 import ExercisesViewJs from './kw/ExercisesView.jsx'
@@ -23,24 +20,9 @@ const FoodView = FoodViewJs as unknown as React.ComponentType<{
 }>
 import './kw/kw-scope.css'
 
-// Heavy 3D code (three.js) loads only when the anatomy tab is opened.
-const AnatomyView = lazy(() => import('./kw/AnatomyView.jsx'))
-// Licensed model (CC BY-SA, see docs/ANATOMY-SOURCES.md) served from this app's own /public folder.
-const ANATOMY_MODEL_URL = `${import.meta.env.BASE_URL}body.glb`
-
-type Tab = 'workouts' | 'library' | 'food' | 'anatomy' | 'book' | 'profile'
-const TABS: { id: Tab; label: string; short: string; Icon: LucideIcon }[] = [
-  { id: 'workouts', label: 'تماريني', short: 'تماريني', Icon: Dumbbell },
-  { id: 'library', label: 'مكتبة التمارين', short: 'المكتبة', Icon: LibraryBig },
-  { id: 'food', label: 'الغذاء', short: 'الغذاء', Icon: Utensils },
-  { id: 'anatomy', label: 'التشريح 3D', short: 'التشريح', Icon: PersonStanding },
-  { id: 'book', label: 'احجز جلسة', short: 'احجز', Icon: CalendarCheck },
-  { id: 'profile', label: 'حسابي', short: 'حسابي', Icon: UserRound },
-]
-
 const AI_OK_MESSAGE = 'تم اقتراح ملخص. تقدر تعدّله قبل الحفظ.'
 
-function Logo() {
+export function Logo() {
   return (
     <span className="logo" aria-hidden="true">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11" /></svg>
@@ -48,7 +30,7 @@ function Logo() {
   )
 }
 
-function Auth() {
+export function Auth() {
   const [signup, setSignup] = useState(false)
   const [forgot, setForgot] = useState(false)
   const [email, setEmail] = useState('')
@@ -93,6 +75,7 @@ function Auth() {
     <main className="auth-shell">
       <section className="auth-hero">
         <div className="brand"><Logo /><span>جيم تراكر</span></div>
+        <a className="link" href="#/">← تصفّح الرياضات والمدربين بدون حساب</a>
         <div className="hero-copy">
           <h1>{forgot ? 'نسيت الرقم السري؟' : signup ? 'سوّي حسابك' : 'هلا فيك، سجّل دخولك'}</h1>
           <p>سجّل كل سيت، وشوف تطورك.</p>
@@ -123,7 +106,7 @@ function Auth() {
 }
 
 /** Shown after the user opens the password-recovery link: they are signed in temporarily and must set a new password. */
-function SetNewPassword({ onDone }: { onDone: () => void }) {
+export function SetNewPassword({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
@@ -169,7 +152,7 @@ function PhotoPlaceholder() {
   )
 }
 
-function Workouts({ session }: { session: Session }) {
+export function MemberArea({ session, tab }: { session: Session; tab: 'workouts' | 'library' | 'food' }) {
   const [items, setItems] = useState<Workout[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -189,8 +172,6 @@ function Workouts({ session }: { session: Session }) {
   const [analysis, setAnalysis] = useState('')
   const [analysisMsg, setAnalysisMsg] = useState('')
   const [analysisBusy, setAnalysisBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('workouts')
-  function goTab(next: Tab) { setTab(next); window.scrollTo({ top: 0 }) }
   // Food diary stays on this device only (no Supabase sync).
   const food = useFoodDiary(session.user.id)
 
@@ -290,29 +271,7 @@ function Workouts({ session }: { session: Session }) {
   const canSuggest = exercise.trim() && Number(sets) > 0 && Number(reps) > 0
 
   return (
-    <div className="app shell">
-      {/* Desktop: sidebar. Mobile: this is hidden and the bottom bar below is used. */}
-      <aside className="sidebar">
-        <div className="brand"><Logo /><span>جيم تراكر</span></div>
-        <nav className="side-nav" aria-label="أقسام التطبيق">
-          {TABS.map(({ id, label, Icon }) => (
-            <button key={id} type="button" className={tab === id ? 'nav-item active' : 'nav-item'}
-              aria-current={tab === id ? 'page' : undefined} onClick={() => goTab(id)}>
-              <Icon size={20} aria-hidden="true" /><span>{label}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      <div className="content">
-      <header className="topbar">
-        <div className="brand"><Logo /><span>جيم تراكر</span></div>
-        <div className="topbar-user">
-          <span className="who" dir="auto">{(session.user.user_metadata?.display_name as string | undefined) || session.user.email}</span>
-          <button className="outline" onClick={() => supabase.auth.signOut()}>خروج</button>
-        </div>
-      </header>
-
+    <>
       {tab === 'library' && (
         <main className="kw-scope">
           <ExercisesView exercises={EXERCISES}
@@ -342,16 +301,6 @@ function Workouts({ session }: { session: Session }) {
             customFoods={food.customFoods} onAddCustomFood={food.addCustomFood} calorieGoal={2000} />
         </main>
       )}
-      {tab === 'profile' && <ProfileView session={session} />}
-      {tab === 'book' && <BookingView session={session} />}
-      {tab === 'anatomy' && (
-        <main className="kw-scope">
-          <Suspense fallback={<p className="muted empty">جارٍ تحضير التشريح ثلاثي الأبعاد…</p>}>
-            <AnatomyView modelUrl={ANATOMY_MODEL_URL} go={(id?: string) => goTab(id === 'exercises' ? 'library' : id === 'food' ? 'food' : 'workouts')} />
-          </Suspense>
-        </main>
-      )}
-
       {tab === 'workouts' && <main className="screen">
         <div className="page-title">
           <span className="eyebrow">داخل بحساب <bdi dir="ltr">{session.user.email}</bdi></span>
@@ -446,37 +395,6 @@ function Workouts({ session }: { session: Session }) {
           </div>
         </div>
       </main>}
-      </div>
-
-      <nav className="bottom-nav" aria-label="التنقل الرئيسي">
-        {TABS.map(({ id, short, Icon }) => (
-          <button key={id} type="button" className={tab === id ? 'active' : undefined}
-            aria-current={tab === id ? 'page' : undefined} onClick={() => goTab(id)}>
-            <Icon size={22} aria-hidden="true" /><span>{short}</span>
-          </button>
-        ))}
-      </nav>
-    </div>
+    </>
   )
-}
-
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [ready, setReady] = useState(false)
-  const [recovering, setRecovering] = useState(false)
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
-    const { data } = supabase.auth.onAuthStateChange((event, s) => {
-      setSession(s)
-      if (event === 'PASSWORD_RECOVERY') setRecovering(true)
-    })
-    return () => data.subscription.unsubscribe()
-  }, [])
-
-  if (!ready) return null
-  if (session && recovering) return <SetNewPassword onDone={() => setRecovering(false)} />
-  // Defense in depth: even if a session ever exists for an address that was never verified, protected pages stay closed.
-  if (session && !session.user.email_confirmed_at) return <VerifyEmail email={session.user.email ?? ''} onBack={() => supabase.auth.signOut()} />
-  return session ? <Workouts session={session} /> : <Auth />
 }

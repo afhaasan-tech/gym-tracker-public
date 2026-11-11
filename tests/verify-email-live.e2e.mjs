@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 if (process.argv[2] === '--make') {
   const { default: bcrypt } = await import('bcryptjs')
   const [credsOut, sqlOut] = process.argv.slice(3)
-  const u = { id: randomUUID(), email: `verifytest-${randomBytes(3).toString('hex')}@example.com`, password: randomBytes(12).toString('hex') }
+  const u = { id: randomUUID(), email: `verifytest-${randomBytes(3).toString('hex')}@example.com`, password: randomBytes(12).toString('hex') + 'Aa!9' }
   const hash = bcrypt.hashSync(u.password, 10)
   writeFileSync(credsOut, JSON.stringify(u))
   writeFileSync(sqlOut, `insert into auth.users (instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at,confirmation_token,recovery_token,email_change,email_change_token_new)
@@ -43,7 +43,7 @@ await step('REST: unverified account cannot get a session (email_not_confirmed)'
   const r = await c.from('workouts').select('id'); assert.ok(r.error || (r.data ?? []).length === 0)
 })
 await step('login form: unverified account lands on the Arabic verification screen, not the app', async () => {
-  await page.goto(base)
+  await page.goto(base + '#/login')
   await page.getByLabel('الإيميل', { exact: true }).fill(U.email); await page.getByLabel('الرقم السري', { exact: true }).fill(U.password)
   await page.getByRole('button', { name: 'دخول', exact: true }).click()
   await page.getByRole('heading', { name: 'أكّد إيميلك' }).waitFor({ timeout: 15000 })

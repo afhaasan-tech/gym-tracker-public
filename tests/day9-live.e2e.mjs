@@ -8,12 +8,13 @@ import { chromium } from 'playwright-core'
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes } from 'node:crypto'
 import assert from 'node:assert/strict'
+import { cred } from './_creds.mjs'
 
 const base = process.argv[2] || 'https://gym-tracker-afhaasan.vercel.app'
 const SUPABASE_URL = 'https://zbqdmebrxqshcsozamwg.supabase.co'
 const PUBLISHABLE_KEY = 'sb_publishable_9R6-GR8-_i78c3cnCgQCgQ_CKm7irzZ' // public by design (ships in the site bundle)
 const RUN = Date.now().toString(36)
-const mkAcc = (who) => ({ email: (process.env.TEST_EMAIL_BASE || 'your.name@gmail.com').replace('@', `+day9live${RUN}${who}@`), password: randomBytes(16).toString('hex'), who })
+const mkAcc = (who) => ({ ...cred(who === 'a' ? 0 : 1), who })
 const A = mkAcc('a'), B = mkAcc('b')
 const results = []
 const ok = (m) => { results.push(['PASS', m]); console.log('PASS', m) }
@@ -26,11 +27,10 @@ const heading = (p) => p.getByRole('heading', { name: 'تماريني' })
 const goTab = (p, name) => p.getByRole('button', { name, exact: true }).first().click()
 
 async function signup(page, acc) {
-  await page.goto(base)
-  await page.getByRole('button', { name: 'جديد؟ سوّي حساب' }).click()
+  await page.goto(base + '#/login?next=%2Fworkouts')
   await page.getByLabel('الإيميل', { exact: true }).fill(acc.email)
   await page.getByLabel('الرقم السري', { exact: true }).fill(acc.password)
-  await page.getByRole('button', { name: 'سجّل', exact: true }).click()
+  await page.getByRole('button', { name: 'دخول', exact: true }).click()
   await heading(page).waitFor({ timeout: 20000 })
 }
 async function login(page, acc) {
@@ -112,9 +112,9 @@ const checkProfile = async (p) => {
   assert.equal(Number(await p.getByLabel('الطول (سم) (اختياري)').inputValue()), 175.5)
   assert.equal(Number(await p.getByLabel('الوزن (كجم) (اختياري)').inputValue()), 80.5)
 }
-await step('A: all profile fields persist after refresh', async () => { await pageA.reload(); await heading(pageA).waitFor(); await checkProfile(pageA) })
+await step('A: all profile fields persist after refresh', async () => { await pageA.reload(); await checkProfile(pageA) })
 await step('A: profile loads in a fresh browser session after a new login', async () => {
-  const fresh = await newPage(); await fresh.goto(base); await login(fresh, A); await checkProfile(fresh)
+  const fresh = await newPage(); await fresh.goto(base + '#/login?next=%2Fworkouts'); await login(fresh, A); await checkProfile(fresh)
 })
 await step("B: sees an empty profile, not A's", async () => { await goTab(pageB, 'حسابي'); await pageB.getByLabel('الاسم الكامل').waitFor(); await pageB.waitForTimeout(800); assert.equal(await pageB.getByLabel('الاسم الكامل').inputValue(), '') })
 await step('profile validation: height 10 cm is rejected (browser and database)', async () => {
@@ -123,9 +123,8 @@ await step('profile validation: height 10 cm is rejected (browser and database)'
 
 // ---- 9-12: bookings ----
 await step('A: demo booking created through the UI, confirmation shows server price and no Pay button', async () => {
-  await goTab(pageA, 'احجز جلسة')
-  await pageA.getByText('خدمات تجريبية للعرض فقط').waitFor()
-  await pageA.getByText('جلسة تدريب شخصي (تجريبي)').click()
+  const svc = (await client().from('services').select('id').eq('platform_owned', true).eq('price_kwd', 12).limit(1)).data[0]
+  await pageA.goto(base + '#/book/' + svc.id); await pageA.getByText('جلسة تدريب شخصي').first().waitFor()
   const d = new Date(Date.now() + 5 * 86400000); const pad = (n) => String(n).padStart(2, '0')
   await pageA.getByLabel(/الموعد المطلوب/).fill(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T18:00`)
   await pageA.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click()
@@ -134,7 +133,7 @@ await step('A: demo booking created through the UI, confirmation shows server pr
   assert.equal(await pageA.getByRole('button', { name: /ادفع|دفع/ }).count(), 0)
 })
 await step('A: booking persists after refresh and has pending payment status', async () => {
-  await pageA.reload(); await goTab(pageA, 'احجز جلسة'); await pageA.locator('.bookings li', { hasText: 'جلسة تدريب شخصي' }).first().waitFor()
+  await pageA.goto(base + '#/bookings'); await pageA.reload(); await pageA.locator('.bookings li', { hasText: 'جلسة تدريب شخصي' }).first().waitFor()
   const { data } = await clientA.from('bookings').select('*'); assert.equal(data.length, 1); assert.equal(data[0].payment_status, 'pending'); assert.equal(Number(data[0].price_kwd), 12); aBookingId = data[0].id
 })
 await step("B: cannot read A's booking", async () => { const { data } = await clientB.from('bookings').select('*').eq('id', aBookingId); assert.equal(data.length, 0) })
@@ -149,13 +148,16 @@ await step('A: customer cannot set payment_status or price, and cannot confirm o
   const u3 = await clientA.from('bookings').update({ booking_status: 'confirmed' }).eq('id', aBookingId).select(); assert.equal((u3.data ?? []).length, 0)
 })
 await step('A and B (non-admins): no admin dashboard section; is_admin() is false', async () => {
-  assert.equal(await pageA.getByLabel('لوحة الإدارة').count(), 0)
-  await goTab(pageB, 'احجز جلسة'); await pageB.getByText('خدمات تجريبية للعرض فقط').waitFor(); assert.equal(await pageB.getByLabel('لوحة الإدارة').count(), 0)
+  for (const pg of [pageA, pageB]) {
+    assert.equal(await pg.getByRole('button', { name: 'لوحة المالك' }).count(), 0)
+    await pg.goto(base + '#/owner'); await pg.getByText('غير مصرّح').first().waitFor(); assert.equal(await pg.getByText('التحقق الثنائي مطلوب').count(), 0)
+  }
   assert.equal((await clientA.rpc('is_admin')).data, false); assert.equal((await clientB.rpc('is_admin')).data, false)
 })
-await step('logged-out client cannot read bookings, profiles, services or admins', async () => {
+await step('logged-out client cannot read bookings, profiles or admins and sees only published services', async () => {
   const anon = client()
-  for (const t of ['bookings', 'profiles', 'services', 'admins']) { const r = await anon.from(t).select('*'); assert.ok(r.error || (r.data ?? []).length === 0, t) }
+  for (const t of ['bookings', 'profiles', 'admins']) { const r = await anon.from(t).select('*'); assert.ok(r.error || (r.data ?? []).length === 0, t) }
+  const sv = await anon.from('services').select('status,is_available'); assert.ok(sv.data.length > 0 && sv.data.every((x) => x.status === 'published' && x.is_available), 'anon sees only published services')
 })
 
 await browser.close()
