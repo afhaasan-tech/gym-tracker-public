@@ -38,3 +38,6 @@ export function exercisesForGroup<T extends { muscle: string }>(group: string, e
   if (!g) return []
   return exercises.filter((e) => g.keywords.some((k) => e.muscle.includes(k)))
 }
+
+import { getLang } from './i18n'
+export const groupName = (g: { ar: string; en: string }) => (getLang() === 'en' ? g.en : g.ar)

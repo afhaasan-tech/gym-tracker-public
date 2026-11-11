@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { t } from './i18n'
 
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -23,8 +24,8 @@ export const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'im
 
 /** Returns an error message if the file is not an allowed image under 5 MB, else null. */
 export function validatePhoto(file: File): string | null {
-  if (!ALLOWED_PHOTO_TYPES.includes(file.type)) return 'اختر صورة بصيغة JPG أو PNG أو WebP أو GIF.'
-  if (file.size > MAX_PHOTO_BYTES) return `حجم الصورة ${(file.size / 1024 / 1024).toFixed(1)} ميغا، والحد الأقصى 5 ميغا.`
+  if (!ALLOWED_PHOTO_TYPES.includes(file.type)) return t("اختر صورة بصيغة JPG أو PNG أو WebP أو GIF.")
+  if (file.size > MAX_PHOTO_BYTES) return t("حجم الصورة {0} ميغا، والحد الأقصى 5 ميغا.", [(file.size / 1024 / 1024).toFixed(1)])
   return null
 }
 
@@ -37,9 +38,9 @@ export async function callAi<T>(fn: 'ai-summary' | 'ai-analysis', body: object):
     const j = await res.json().catch(() => null)
     // Same server-side limit and response; only the wording shown to the user is Arabic.
     if (res.status === 429) {
-      return { error: `وصلت الحد الأقصى: 5 طلبات ذكاء اصطناعي بالدقيقة (تنحسب على الميزتين). جرّب بعد ${j?.retry_after_seconds ?? 60} ثانية.`, status: 429 }
+      return { error: t("وصلت الحد الأقصى: 5 طلبات ذكاء اصطناعي بالدقيقة (تنحسب على الميزتين). جرّب بعد {0} ثانية.", [j?.retry_after_seconds ?? 60]), status: 429 }
     }
-    return { error: j?.error ?? 'صار خطأ في طلب الذكاء الاصطناعي.', status: res.status }
+    return { error: j?.error ?? t("صار خطأ في طلب الذكاء الاصطناعي."), status: res.status }
   }
   return { error: error.message }
 }
@@ -48,15 +49,15 @@ export async function callAi<T>(fn: 'ai-summary' | 'ai-analysis', body: object):
 export function authErrorMessage(err: { message?: string; code?: string; status?: number }): string {
   const code = err.code ?? ''
   const msg = (err.message ?? '').toLowerCase()
-  if (code === 'invalid_credentials' || msg.includes('invalid login credentials')) return 'الإيميل أو الرقم السري مب صحيح. جرّب مرة ثانية.'
-  if (code === 'user_already_exists' || msg.includes('already registered')) return 'هذا الإيميل مسجّل من قبل. سجّل دخول بدل ما تسوي حساب جديد.'
-  if (code === 'weak_password' || msg.includes('password should be')) return 'الرقم السري ضعيف. استخدم 8 خانات على الأقل.'
-  if (code === 'email_not_confirmed' || msg.includes('not confirmed')) return 'لازم تأكّد إيميلك أول. شيّك على بريدك.'
+  if (code === 'invalid_credentials' || msg.includes('invalid login credentials')) return t("الإيميل أو الرقم السري مب صحيح. جرّب مرة ثانية.")
+  if (code === 'user_already_exists' || msg.includes('already registered')) return t("هذا الإيميل مسجّل من قبل. سجّل دخول بدل ما تسوي حساب جديد.")
+  if (code === 'weak_password' || msg.includes('password should be')) return t("الرقم السري ضعيف. استخدم 8 خانات على الأقل.")
+  if (code === 'email_not_confirmed' || msg.includes('not confirmed')) return t("لازم تأكّد إيميلك أول. شيّك على بريدك.")
   if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit' || err.status === 429 || msg.includes('rate limit'))
-    return 'صارت طلبات واجد. انتظر شوي وجرّب مرة ثانية.'
-  if (code === 'validation_failed' || msg.includes('valid email') || msg.includes('invalid format')) return 'اكتب إيميل صحيح.'
-  if (code === 'same_password' || msg.includes('different from the old')) return 'اختر رقم سري غير الرقم القديم.'
-  if (code === 'signup_disabled') return 'التسجيل مب متاح حالياً.'
-  if (msg.includes('failed to fetch') || msg.includes('network')) return 'ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.'
-  return 'صار خطأ غير متوقع. جرّب مرة ثانية.'
+    return t("صارت طلبات واجد. انتظر شوي وجرّب مرة ثانية.")
+  if (code === 'validation_failed' || msg.includes('valid email') || msg.includes('invalid format')) return t("اكتب إيميل صحيح.")
+  if (code === 'same_password' || msg.includes('different from the old')) return t("اختر رقم سري غير الرقم القديم.")
+  if (code === 'signup_disabled') return t("التسجيل مب متاح حالياً.")
+  if (msg.includes('failed to fetch') || msg.includes('network')) return t("ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.")
+  return t("صار خطأ غير متوقع. جرّب مرة ثانية.")
 }

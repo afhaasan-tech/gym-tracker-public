@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
+import { t } from './i18n'
 
 /** Shapes the (unchanged) FoodView component already works with. */
 export type Meal = { id: string; name: string; serving: string; calories: number; protein: number; carbs: number; fat: number; date: string }
@@ -18,8 +19,8 @@ const num = (v: unknown, max: number) => { const n = Number(v); return Number.is
 const text = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max)
 
 export function writeErrorMessage(err: { message?: string } | null | undefined): string {
-  if (/failed to fetch|network|load failed/i.test(err?.message ?? '')) return 'ما قدرنا نتصل بالإنترنت، فما انحفظ التغيير. شيّك على الاتصال وجرّب مرة ثانية.'
-  return 'ما انحفظ التغيير في حسابك. جرّب مرة ثانية.'
+  if (/failed to fetch|network|load failed/i.test(err?.message ?? '')) return t("ما قدرنا نتصل بالإنترنت، فما انحفظ التغيير. شيّك على الاتصال وجرّب مرة ثانية.")
+  return t("ما انحفظ التغيير في حسابك. جرّب مرة ثانية.")
 }
 
 function toMeal(r: Row): Meal {

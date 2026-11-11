@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { BookOpen, CalendarCheck, Dumbbell, Home, LogIn, MoreHorizontal, Salad, Shield, Target, User, Users, Trophy, Briefcase, type LucideIcon } from 'lucide-react'
-import { Logo } from './App'
+import { BookOpen, CalendarCheck, Dumbbell, Home, LogIn, MoreHorizontal, Salad, Shield, Target, User, Users, Trophy, Briefcase, Tag, type LucideIcon } from 'lucide-react'
+import { Brand } from './brand'
 import { supabase } from './supabase'
+import { t } from './i18n'
+import { LangSwitch } from './ui'
 
 export type NavItem = { to: string; label: string; short: string; Icon: LucideIcon; primary?: boolean }
 type Props = { items: NavItem[]; path: string; go: (to: string) => void; email?: string; children: ReactNode }
@@ -17,8 +19,8 @@ export default function Shell({ items, path, go, email, children }: Props) {
   return (
     <div className="app shell">
       <aside className="sidebar">
-        <button type="button" className="brand brand-btn" onClick={() => go('/')}><Logo /><span>جيم تراكر</span></button>
-        <nav className="side-nav" aria-label="أقسام التطبيق">
+        <button type="button" className="brand brand-btn" aria-label={t("الرئيسية")} onClick={() => go('/')}><Brand /></button>
+        <nav className="side-nav" aria-label={t("أقسام التطبيق")}>
           {items.map(({ to, label, Icon }) => (
             <button key={to} type="button" className={active(path, to) ? 'nav-item active' : 'nav-item'} aria-current={active(path, to) ? 'page' : undefined} onClick={() => go(to)}>
               <Icon size={20} aria-hidden="true" /><span>{label}</span>
@@ -28,51 +30,54 @@ export default function Shell({ items, path, go, email, children }: Props) {
       </aside>
       <div className="content">
         <header className="topbar">
-          <button type="button" className="brand brand-btn" onClick={() => go('/')}><Logo /><span>جيم تراكر</span></button>
+          <button type="button" className="brand brand-btn" aria-label={t("الرئيسية")} onClick={() => go('/')}><Brand /></button>
           <div className="topbar-user">
-            {email ? <><span className="who" dir="auto">{email}</span><button className="outline" onClick={() => supabase.auth.signOut()}>خروج</button></>
-              : <button className="outline" onClick={() => go('/login')}>تسجيل الدخول</button>}
+            <LangSwitch />
+            {email ? <><span className="who" dir="auto">{email}</span><button className="outline" onClick={() => supabase.auth.signOut()}>{t("خروج")}</button></>
+              : <button className="outline" onClick={() => go('/login')}>{t("تسجيل الدخول")}</button>}
           </div>
         </header>
         {children}
       </div>
-      <nav className="bottom-nav" aria-label="التنقل الرئيسي">
+      <nav className="bottom-nav" aria-label={t("التنقل الرئيسي")}>
         {primary.map(({ to, short, Icon }) => (
           <button key={to} type="button" className={active(path, to) ? 'active' : undefined} aria-current={active(path, to) ? 'page' : undefined} onClick={() => open(to)}>
             <Icon size={22} aria-hidden="true" /><span>{short}</span>
           </button>
         ))}
-        {rest.length > 0 && <button type="button" className={more ? 'active' : undefined} aria-expanded={more} onClick={() => setMore((m) => !m)}><MoreHorizontal size={22} aria-hidden="true" /><span>المزيد</span></button>}
+        {rest.length > 0 && <button type="button" className={more ? 'active' : undefined} aria-expanded={more} onClick={() => setMore((m) => !m)}><MoreHorizontal size={22} aria-hidden="true" /><span>{t("المزيد")}</span></button>}
       </nav>
       {more && (
-        <div className="more-sheet" role="dialog" aria-label="المزيد">
+        <div className="more-sheet" role="dialog" aria-label={t("المزيد")}>
           {rest.map(({ to, label, Icon }) => <button key={to} type="button" className={active(path, to) ? 'active' : undefined} onClick={() => open(to)}><Icon size={20} aria-hidden="true" /><span>{label}</span></button>)}
-          {email && <button type="button" onClick={() => supabase.auth.signOut()}><LogIn size={20} aria-hidden="true" /><span>خروج</span></button>}
+          {email && <button type="button" onClick={() => supabase.auth.signOut()}><LogIn size={20} aria-hidden="true" /><span>{t("خروج")}</span></button>}
         </div>
       )}
     </div>
   )
 }
 
-export const PUBLIC_NAV: NavItem[] = [
-  { to: '/', label: 'الرئيسية', short: 'الرئيسية', Icon: Home, primary: true },
-  { to: '/sports', label: 'اكتشف الرياضات', short: 'الرياضات', Icon: Trophy, primary: true },
-  { to: '/coaches', label: 'المدربون', short: 'المدربون', Icon: Users, primary: true },
-  { to: '/muscles', label: 'اختَر عضلتك', short: 'عضلتك', Icon: Target, primary: true },
-  { to: '/login', label: 'تسجيل الدخول / إنشاء حساب', short: 'دخول', Icon: LogIn, primary: true },
-  { to: '/self', label: 'أتمرن بروحي', short: 'بروحي', Icon: Dumbbell },
-  { to: '/food', label: 'الغذاء', short: 'الغذاء', Icon: Salad },
+export const publicNav = (): NavItem[] => [
+  { to: '/', label: t('الرئيسية'), short: t('الرئيسية'), Icon: Home, primary: true },
+  { to: '/sports', label: t('اكتشف الرياضات'), short: t('الرياضات'), Icon: Trophy, primary: true },
+  { to: '/coaches', label: t('المدربون'), short: t('المدربون'), Icon: Users, primary: true },
+  { to: '/muscles', label: t('اختَر عضلتك'), short: t('عضلتك'), Icon: Target, primary: true },
+  { to: '/login', label: t('تسجيل الدخول / إنشاء حساب'), short: t('دخول'), Icon: LogIn, primary: true },
+  { to: '/self', label: t('أتمرن بروحي'), short: t('بروحي'), Icon: Dumbbell },
+  { to: '/food', label: t('الغذاء'), short: t('الغذاء'), Icon: Salad },
+  { to: '/plans', label: t('الباقات والأسعار'), short: t('الباقات'), Icon: Tag },
 ]
 export const memberNav = (coach: boolean, admin: boolean): NavItem[] => [
-  { to: '/', label: 'الرئيسية', short: 'الرئيسية', Icon: Home, primary: true },
-  { to: '/workouts', label: 'تماريني', short: 'تماريني', Icon: Dumbbell, primary: true },
-  { to: '/sports', label: 'اكتشف الرياضات', short: 'اكتشف', Icon: Trophy, primary: true },
-  { to: '/bookings', label: 'حجوزاتي', short: 'حجوزاتي', Icon: CalendarCheck, primary: true },
-  { to: '/profile', label: 'حسابي', short: 'حسابي', Icon: User, primary: true },
-  { to: '/coaches', label: 'المدربون', short: 'المدربون', Icon: Users },
-  { to: '/food', label: 'الغذاء', short: 'الغذاء', Icon: Salad },
-  { to: '/muscles', label: 'اختَر عضلتك', short: 'عضلتك', Icon: Target },
-  { to: '/self', label: 'أتمرن بروحي', short: 'بروحي', Icon: BookOpen },
-  ...(coach ? [{ to: '/coach', label: 'لوحة المدرب', short: 'المدرب', Icon: Briefcase }] : []),
-  ...(admin ? [{ to: '/owner', label: 'لوحة المالك', short: 'المالك', Icon: Shield }] : []),
+  { to: '/', label: t("الرئيسية"), short: t("الرئيسية"), Icon: Home, primary: true },
+  { to: '/workouts', label: t("تماريني"), short: t("تماريني"), Icon: Dumbbell, primary: true },
+  { to: '/sports', label: t("اكتشف الرياضات"), short: t("اكتشف"), Icon: Trophy, primary: true },
+  { to: '/bookings', label: t("حجوزاتي"), short: t("حجوزاتي"), Icon: CalendarCheck, primary: true },
+  { to: '/profile', label: t("حسابي"), short: t("حسابي"), Icon: User, primary: true },
+  { to: '/coaches', label: t("المدربون"), short: t("المدربون"), Icon: Users },
+  { to: '/food', label: t("الغذاء"), short: t("الغذاء"), Icon: Salad },
+  { to: '/muscles', label: t("اختَر عضلتك"), short: t("عضلتك"), Icon: Target },
+  { to: '/self', label: t("أتمرن بروحي"), short: t("بروحي"), Icon: BookOpen },
+  { to: '/plans', label: t('الباقات والأسعار'), short: t('الباقات'), Icon: Tag },
+  ...(coach ? [{ to: '/coach', label: t("لوحة المدرب"), short: t("المدرب"), Icon: Briefcase }] : []),
+  ...(admin ? [{ to: '/owner', label: t("لوحة المالك"), short: t("المالك"), Icon: Shield }] : []),
 ]

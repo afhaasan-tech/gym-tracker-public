@@ -1,8 +1,9 @@
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { GROUPS, groupOfMuscleName } from './muscles'
+import { GROUPS, groupOfMuscleName, groupName } from './muscles'
 import { ExerciseCards } from './pages'
 import { findAnatomyInfo } from './kw/anatomyInfo.js'
+import { t } from './i18n'
 
 const Canvas = lazy(() => import('./kw/AnatomyCanvas.jsx'))
 const MODEL_URL = `${import.meta.env.BASE_URL}body.glb`
@@ -21,27 +22,27 @@ export default function MuscleExplorer({ session, go, initialGroup }: { session:
   const arabic = useMemo(() => { if (!part) return ''; for (const c of [part.name, part]) { try { const i = findAnatomyInfo(c) as { ar?: string } | null; if (i?.ar) return i.ar } catch { /* try next shape */ } } return '' }, [part])
   return (
     <main className="screen market muscle-explorer" dir="rtl" lang="ar">
-      <div className="page-title"><span className="eyebrow">Muscle Explorer</span><h1>اختَر عضلتك</h1>
-        <p className="muted">دوّر المجسّم واضغط على العضلة اللي تبي تدرّبها، أو اختر المجموعة من القائمة، وبعدها شوف تمارينها.</p></div>
+      <div className="page-title"><span className="eyebrow">Muscle Explorer</span><h1>{t("اختَر عضلتك")}</h1>
+        <p className="muted">{t("دوّر المجسّم واضغط على العضلة اللي تبي تدرّبها، أو اختر المجموعة من القائمة، وبعدها شوف تمارينها.")}</p></div>
       <div className="me-layout">
-        <section className="me-viewer card" aria-label="مجسّم العضلات ثلاثي الأبعاد">
-          <Suspense fallback={<p className="muted empty" role="status">جارٍ تحضير المجسّم…</p>}>
+        <section className="me-viewer card" aria-label={t("مجسّم العضلات ثلاثي الأبعاد")}>
+          <Suspense fallback={<p className="muted empty" role="status">{t("جارٍ تحضير المجسّم…")}</p>}>
             <Canvas modelUrl={MODEL_URL} mode="trainable" groupOf={groupOfMuscleName} onSelect={onSelect} onReady={() => undefined} action={action} />
           </Suspense>
         </section>
         <section className="me-panel">
-          <h2>مجموعات العضلات</h2>
-          <div className="chips wrap" role="group" aria-label="مجموعات العضلات">
-            {GROUPS.map((x) => <button key={x.id} type="button" className={group === x.id ? 'chip chip-btn on' : 'chip chip-btn'} aria-pressed={group === x.id} onClick={() => pick(x.id)}>{x.ar}</button>)}
+          <h2>{t("مجموعات العضلات")}</h2>
+          <div className="chips wrap" role="group" aria-label={t("مجموعات العضلات")}>
+            {GROUPS.map((x) => <button key={x.id} type="button" className={group === x.id ? 'chip chip-btn on' : 'chip chip-btn'} aria-pressed={group === x.id} onClick={() => pick(x.id)}>{groupName(x)}</button>)}
           </div>
           {g ? (
             <div aria-live="polite">
-              <h2>{g.ar} <small className="muted" dir="ltr">{g.en}</small></h2>
-              {part?.group === g.id && <p className="muted small">العضلة المحددة: <strong>{arabic || part.name}</strong>{arabic ? <span dir="ltr"> ({part.name})</span> : null}</p>}
-              <h3>تمارين هذي المجموعة</h3>
+              <h2>{groupName(g)}</h2>
+              {part?.group === g.id && <p className="muted small">{t("العضلة المحددة:")} <strong>{arabic || part.name}</strong>{arabic ? <span dir="ltr"> ({part.name})</span> : null}</p>}
+              <h3>{t("تمارين هذي المجموعة")}</h3>
               <ExerciseCards group={g.id} session={session} go={go} back={`/muscles?group=${g.id}`} />
             </div>
-          ) : <p className="muted">اختر مجموعة أو اضغط على المجسّم.</p>}
+          ) : <p className="muted">{t("اختر مجموعة أو اضغط على المجسّم.")}</p>}
         </section>
       </div>
     </main>
