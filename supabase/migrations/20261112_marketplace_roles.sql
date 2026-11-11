@@ -1,3 +1,5 @@
+begin;
+
 -- Kuwait-first multi-sport discovery platform: sports catalog, independent trainers, owner-approved services, slots, bookings.
 -- Roles: OWNER = public.admins (managed in SQL only); TRAINER = approved row in trainer_profiles; MEMBER = any signed-in user.
 -- Everything privileged happens through SECURITY DEFINER functions that check the caller; the UI is never trusted.
@@ -139,8 +141,10 @@ alter table public.services
   add column duration_minutes int not null default 60 check (duration_minutes between 15 and 240),
   add column status text not null default 'published' check (status in ('draft','submitted','published','rejected','archived')),
   add column qualification_checked boolean not null default false,
+  add column platform_owned boolean not null default false,   -- true only for services the platform itself offers (the 4 original demos and owner-created ones)
   add column updated_at timestamptz not null default now(),
   add constraint services_age_order check (min_age is null or max_age is null or max_age >= min_age);
+update public.services set platform_owned = true where trainer_id is null;   -- the 4 existing demo services (only these rows exist at this point)
 create index services_trainer_idx on public.services (trainer_id);
 create index services_sport_idx on public.services (sport_id);
 
@@ -159,6 +163,8 @@ begin
   if tg_op = 'INSERT' then
     if not adm and not public.is_trainer() then raise exception 'only approved trainers can propose services' using errcode = '42501'; end if;
     new.trainer_id := case when adm then null else auth.uid() end;
+    new.platform_owned := adm;
+    if not adm and new.sport_id is null then raise exception 'choose a sport' using errcode = '23514'; end if;
     new.status := 'draft'; new.qualification_checked := false; new.is_demo := true; new.is_available := true;
     if not adm and new.sport_id is not null and not exists (select 1 from public.trainer_sports ts where ts.trainer_id = auth.uid() and ts.sport_id = new.sport_id) then
       raise exception 'choose one of your approved specializations' using errcode = '23514';
@@ -177,9 +183,11 @@ end $$;
 create trigger services_before_write before insert or update on public.services for each row execute function public.services_before_write();
 
 drop policy "Signed-in users view available services" on public.services;
-create policy "Public sees published services" on public.services for select to anon using (status = 'published' and is_available);
+create policy "Public sees published services" on public.services for select to anon
+  using (status = 'published' and is_available and (platform_owned or exists (select 1 from public.trainer_profiles t where t.user_id = trainer_id and t.status = 'approved')));
 create policy "Members see published services, trainers their own, owner all" on public.services for select to authenticated
-  using ((status = 'published' and is_available) or trainer_id = (select auth.uid()) or (select public.is_admin()));
+  using ((status = 'published' and is_available and (platform_owned or exists (select 1 from public.trainer_profiles t where t.user_id = trainer_id and t.status = 'approved')))
+         or trainer_id = (select auth.uid()) or (select public.is_admin()));
 create policy "Trainer or owner proposes services" on public.services for insert to authenticated
   with check ((select public.is_admin()) or (trainer_id = (select auth.uid()) and (select public.is_trainer())));
 create policy "Trainer edits own services, owner any" on public.services for update to authenticated
@@ -214,6 +222,8 @@ begin
     if s.status <> 'submitted' and s.trainer_id is not null then raise exception 'only submitted services can be published' using errcode = '23514'; end if;
     if s.trainer_id is not null and not exists (select 1 from public.trainer_profiles t where t.user_id = s.trainer_id and t.status = 'approved') then
       raise exception 'trainer is not approved' using errcode = '23514'; end if;
+    if s.trainer_id is not null and (s.sport_id is null or not exists (select 1 from public.trainer_sports ts where ts.trainer_id = s.trainer_id and ts.sport_id = s.sport_id)) then
+      raise exception 'the sport must be one of the trainer''s approved specializations' using errcode = '23514'; end if;
     select * into sp from public.sports where id = s.sport_id;
     if found and (not sp.is_active) then raise exception 'sport is not active' using errcode = '23514'; end if;
     if found and sp.requires_review and not p_qualification_checked then
@@ -234,11 +244,12 @@ create table public.service_slots (
 );
 create index service_slots_service_idx on public.service_slots (service_id, starts_at);
 alter table public.service_slots enable row level security;
-create policy "Trainer sees own slots, owner all, members see slots of published services" on public.service_slots for select to authenticated
+create policy "Slots: own trainer, owner, or published services" on public.service_slots for select to authenticated
   using ((select public.is_admin()) or (select public.owns_service(service_id))
-         or exists (select 1 from public.services s where s.id = service_id and s.status = 'published' and s.is_available));
+         or exists (select 1 from public.services s where s.id = service_id and s.status = 'published' and s.is_available
+                    and (s.platform_owned or exists (select 1 from public.trainer_profiles t where t.user_id = s.trainer_id and t.status = 'approved'))));
 create policy "Trainer adds slots to own services" on public.service_slots for insert to authenticated
-  with check ((select public.owns_service(service_id)) and starts_at > now());
+  with check ((select public.owns_service(service_id)) and (select public.is_trainer()) and starts_at > now());
 create policy "Trainer removes own slots" on public.service_slots for delete to authenticated using ((select public.owns_service(service_id)));
 revoke all on public.service_slots from anon, authenticated;
 grant select, delete on public.service_slots to authenticated;
@@ -253,7 +264,9 @@ create index bookings_trainer_idx on public.bookings (trainer_id);
 create index bookings_slot_idx on public.bookings (slot_id);
 
 create function public.slot_taken(p_slot uuid) returns int language sql stable security definer set search_path = public as $$
-  select coalesce(sum(participants), 0)::int from public.bookings where slot_id = p_slot and booking_status <> 'cancelled';
+  select coalesce(sum(b.participants), 0)::int from public.bookings b
+    join public.service_slots sl on sl.id = b.slot_id join public.services s on s.id = sl.service_id
+   where b.slot_id = p_slot and b.booking_status <> 'cancelled' and s.status = 'published';
 $$;
 revoke all on function public.slot_taken(uuid) from public, anon;
 grant execute on function public.slot_taken(uuid) to authenticated;
@@ -264,6 +277,7 @@ language sql stable security definer set search_path = public as $$
   select sl.id, sl.starts_at, greatest(0, s.capacity - public.slot_taken(sl.id))
     from public.service_slots sl join public.services s on s.id = sl.service_id
    where sl.service_id = p_service and s.status = 'published' and s.is_available and sl.starts_at > now() + interval '1 hour'
+     and (s.platform_owned or exists (select 1 from public.trainer_profiles t where t.user_id = s.trainer_id and t.status = 'approved'))
    order by sl.starts_at limit 200;
 $$;
 revoke all on function public.public_slots(uuid) from public;
@@ -277,9 +291,9 @@ begin
       raise exception 'customers cannot set booking_status or payment_status' using errcode = '42501';
     end if;
   end if;
-  select sv.price_kwd, sv.is_available, sv.status, sv.trainer_id, sv.capacity, sv.min_age, sv.format into s from public.services sv where sv.id = new.service_id;
+  select sv.price_kwd, sv.is_available, sv.status, sv.trainer_id, sv.capacity, sv.min_age, sv.format, sv.platform_owned into s from public.services sv where sv.id = new.service_id;
   if not found or not s.is_available or s.status <> 'published'
-     or (s.trainer_id is not null and not exists (select 1 from public.trainer_profiles t where t.user_id = s.trainer_id and t.status = 'approved')) then
+     or (not s.platform_owned and not exists (select 1 from public.trainer_profiles t where t.user_id = s.trainer_id and t.status = 'approved')) then
     raise exception 'service is not available' using errcode = '23514';
   end if;
   new.price_kwd := s.price_kwd;     -- server-side price, always
@@ -300,6 +314,21 @@ begin
   end if;
   if new.scheduled_at < now() + interval '1 hour' or new.scheduled_at > now() + interval '90 days' then
     raise exception 'scheduled_at must be between 1 hour and 90 days from now' using errcode = '23514';
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+
+create or replace function public.bookings_before_update() returns trigger language plpgsql set search_path = public as $$
+begin
+  if current_user not in ('postgres', 'supabase_admin', 'service_role') then
+    if new.user_id is distinct from old.user_id or new.service_id is distinct from old.service_id
+       or new.scheduled_at is distinct from old.scheduled_at or new.price_kwd is distinct from old.price_kwd
+       or new.payment_status is distinct from old.payment_status or new.created_at is distinct from old.created_at
+       or new.trainer_id is distinct from old.trainer_id or new.slot_id is distinct from old.slot_id
+       or new.participants is distinct from old.participants or new.guardian_consent is distinct from old.guardian_consent then
+      raise exception 'only booking_status may be changed by a user' using errcode = '42501';
+    end if;
   end if;
   new.updated_at := now();
   return new;
@@ -388,3 +417,5 @@ insert into public.service_slots (service_id, starts_at)
 select s.id, (d::date + t)::timestamp at time zone 'Asia/Kuwait'
 from public.services s, generate_series(current_date + 2, current_date + 60, interval '1 day') d, (values (time '17:00'), (time '19:00')) as x(t)
 where s.id::text like 'e0000000-%';
+
+commit;
