@@ -39,12 +39,16 @@ async function call(method: 'GET' | 'POST', path: string, body?: string): Promis
   return { status: res.status, json }
 }
 
+/** UPayments limits reference.id to 35 chars, so our 36-char UUID is sent without dashes (32 hex) and mapped back on the way in. */
+export const compact = (id: string) => id.replace(/-/g, '')
+export const expand = (h: string) => /^[0-9a-f]{32}$/i.test(h) ? `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`.toLowerCase() : ''
+
 export type Charge = { link: string; sessionId: string | null; raw: unknown }
 /** Hosted checkout. amount is KWD, already server-derived; order id/reference = our attempt id (unique, also our idempotency key). */
 export async function createCharge(p: { attemptId: string; amountKwd: number; description: string; language: 'ar' | 'en'; returnUrl: string; cancelUrl: string; notificationUrl: string; expiryMinutes: number }): Promise<Charge> {
   const body = JSON.stringify({
-    order: { id: p.attemptId, reference: p.attemptId, description: p.description.slice(0, 450), currency: 'KWD', amount: Number(p.amountKwd.toFixed(3)) },
-    language: p.language, reference: { id: p.attemptId },
+    order: { id: compact(p.attemptId), reference: compact(p.attemptId), description: p.description.slice(0, 450), currency: 'KWD', amount: Number(p.amountKwd.toFixed(3)) },
+    language: p.language, reference: { id: compact(p.attemptId) },
     customer: { name: 'VORA member' },
     returnUrl: p.returnUrl, cancelUrl: p.cancelUrl, notificationUrl: p.notificationUrl,
     paymentLinkExpiryInMinutes: p.expiryMinutes,
@@ -59,17 +63,18 @@ export async function createCharge(p: { attemptId: string; amountKwd: number; de
   return { link, sessionId, raw: r.json }
 }
 
-export type Verified = { found: boolean; result: string; amount: number | null; currency: string; reference: string; trackId: string | null; raw: unknown }
+export type Verified = { found: boolean; terminal: boolean; result: string; amount: number | null; currency: string; reference: string; trackId: string | null; raw: unknown }
 /** Authoritative server-to-server lookup. */
 export async function fetchStatus(by: { trackId?: string | null; sessionId?: string | null }): Promise<Verified> {
   const path = by.trackId ? 'get-payment-status/' + encodeURIComponent(by.trackId) : by.sessionId ? 'get-payment-status?session_id=' + encodeURIComponent(by.sessionId) : ''
   if (!path) throw new Error('no provider identifier')
   const r = await call('GET', path)
   const t = r.json?.data?.transaction
-  if (!t) return { found: false, result: 'UNKNOWN', amount: null, currency: '', reference: '', trackId: null, raw: r.json }
+  if (!t) return { found: false, terminal: false, result: 'UNKNOWN', amount: null, currency: '', reference: '', trackId: null, raw: r.json }
   const amount = Number(t.total_price ?? t.total_paid_non_kwd)
   return {
-    found: true, result: String(t.result ?? 'UNKNOWN').toUpperCase(), amount: Number.isFinite(amount) ? amount : null,
+    // an unpaid checkout reports result 'NOT CAPTURED' with status 'PENDING' and no track_id: that is NOT a decline
+    found: true, terminal: Boolean(t.track_id) || String(t.status ?? '').toLowerCase() === 'done', result: String(t.result ?? 'UNKNOWN').toUpperCase(), amount: Number.isFinite(amount) ? amount : null,
     currency: String(t.currency_type ?? '').toUpperCase(), reference: String(t.reference ?? ''), trackId: t.track_id ? String(t.track_id) : null, raw: r.json,
   }
 }
@@ -100,3 +105,18 @@ export const serviceClient = () => createClient(Deno.env.get('SUPABASE_URL')!, D
 export const appUrl = () => (Deno.env.get('APP_URL') || 'https://gym-tracker-afhaasan.vercel.app').replace(/\/$/, '')
 /** The exact public URL that is sent as notificationUrl and signed over (UPayments signs the FULL notification URL). */
 export const notificationUrl = () => (Deno.env.get('SUPABASE_URL')! + '/functions/v1/payment-webhook')
+
+/** Asks the provider about one attempt and applies ONLY a provider-confirmed outcome (or, when allowed and due, expires it). */
+export async function resolveAttempt(db: ReturnType<typeof serviceClient>, a: any, source: string, mayExpire: boolean): Promise<string> {
+  let st: Verified | null = null
+  try { st = (a.provider_track_id || a.provider_session_id) ? await fetchStatus({ trackId: a.provider_track_id, sessionId: a.provider_session_id }) : null } catch (e) { console.error('lookup failed', (e as Error).message); if (mayExpire) return 'unchanged_provider_unreachable' }
+  if (st?.found && st.reference === compact(a.id) && (st.result === 'CAPTURED' || (st.terminal && FAIL_RESULTS.includes(st.result)))) {
+    const r = await db.rpc('payment_apply', { p_attempt: a.id, p_result: st.result, p_amount: st.amount, p_currency: st.currency, p_track: st.trackId, p_response: { result: st.result }, p_source: source })
+    return r.data?.outcome ?? 'error'
+  }
+  if (mayExpire) {   // provider confirms nothing was captured (unknown / still pending past our expiry): abandon it
+    const r = await db.rpc('payment_apply', { p_attempt: a.id, p_result: 'EXPIRED', p_amount: null, p_currency: null, p_track: null, p_response: {}, p_source: source })
+    return r.data?.outcome ?? 'error'
+  }
+  return 'unchanged'
+}

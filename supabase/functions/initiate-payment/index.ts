@@ -1,6 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { appUrl, corsHeaders, createCharge, json, notificationUrl, serviceClient } from './upayments.ts'
+import { appUrl, corsHeaders, createCharge, json, notificationUrl, resolveAttempt, serviceClient } from './upayments.ts'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -28,7 +28,8 @@ Deno.serve(async (req) => {
   let { data, error } = await start()
   if (error?.code === 'PA004') {
     // an older checkout is past its expiry: ask the provider before allowing a new one (it may have been paid)
-    await db.functions.invoke('payment-reconcile', { body: { internal_booking: bookingId, user_id: user.id }, headers: { 'x-cron-secret': Deno.env.get('PAYMENT_CRON_SECRET') ?? '' } }).catch(() => null)
+    const { data: stale } = await db.from('payment_attempts').select('*').eq('booking_id', bookingId).in('status', ['created', 'checkout_ready']).lt('expires_at', new Date().toISOString())
+    for (const a of stale ?? []) await resolveAttempt(db, a, 'reconcile', true)
     ;({ data, error } = await start())
   }
   if (error) {

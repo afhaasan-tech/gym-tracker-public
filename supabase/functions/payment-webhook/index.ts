@@ -1,5 +1,5 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { FAIL_RESULTS, fetchStatus, json, notificationUrl, serviceClient, verifyWebhook } from './upayments.ts'
+import { compact, expand, FAIL_RESULTS, fetchStatus, json, notificationUrl, serviceClient, verifyWebhook } from './upayments.ts'
 
 // UPayments -> VORA. Deployed with verify_jwt = false (the provider has no Supabase JWT); authenticity comes from the HMAC signature.
 // The webhook body is only a HINT: the outcome that is applied always comes from a fresh server-to-server lookup.
@@ -19,7 +19,8 @@ Deno.serve(async (req) => {
 
   // find OUR attempt: its id was sent to the provider as order.id / reference
   let attempt: any = null
-  if (/^[0-9a-f-]{36}$/i.test(hintOrder)) attempt = (await db.from('payment_attempts').select('*').eq('id', hintOrder).maybeSingle()).data
+  const attemptId = expand(hintOrder)
+  if (attemptId) attempt = (await db.from('payment_attempts').select('*').eq('id', attemptId).maybeSingle()).data
   if (!attempt && track) attempt = (await db.from('payment_attempts').select('*').eq('provider_track_id', track).maybeSingle()).data
   if (!attempt) { console.warn('webhook for unknown attempt', hintOrder, track); return json(404, { error: 'unknown_attempt' }) }
 
@@ -30,11 +31,11 @@ Deno.serve(async (req) => {
     await db.rpc('payment_log', { p_attempt: attempt.id, p_booking: attempt.booking_id, p_source: 'webhook', p_result: String(body.result ?? ''), p_outcome: 'rejected_unverifiable', p_details: { track } })
     return json(422, { error: 'unverifiable' })
   }
-  if (verified.reference !== attempt.id) {
+  if (verified.reference !== compact(attempt.id)) {
     await db.rpc('payment_log', { p_attempt: attempt.id, p_booking: attempt.booking_id, p_source: 'webhook', p_result: verified.result, p_outcome: 'rejected_reference_mismatch', p_details: { got: verified.reference } })
     return json(422, { error: 'reference_mismatch' })
   }
-  if (verified.result !== 'CAPTURED' && !FAIL_RESULTS.includes(verified.result)) {
+  if (verified.result !== 'CAPTURED' && !(verified.terminal && FAIL_RESULTS.includes(verified.result))) {
     await db.rpc('payment_log', { p_attempt: attempt.id, p_booking: attempt.booking_id, p_source: 'webhook', p_result: verified.result, p_outcome: 'ignored_non_terminal', p_details: {} })
     return json(200, { outcome: 'ignored_non_terminal' })
   }

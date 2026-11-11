@@ -12,6 +12,7 @@ import CoachArea, { ClaimCoachCard } from './coach'
 import OwnerArea from './owner'
 import { t, useLang } from './i18n'
 import PlansPage from './PlansPage'
+import PayReturn from './PayReturn'
 
 const MuscleExplorer = lazy(() => import('./MuscleExplorer'))
 const MEMBER_ONLY = ['/workouts', '/bookings', '/profile']
@@ -35,7 +36,7 @@ function RootInner() {
   }, [])
 
   const { path, segments: seg, query } = route
-  const needsLogin = !session && (MEMBER_ONLY.includes(path) || path === '/coach' || path.startsWith('/coach/') || path === '/owner' || path.startsWith('/owner/'))
+  const needsLogin = !session && (MEMBER_ONLY.includes(path) || path.startsWith('/pay/') || path === '/coach' || path.startsWith('/coach/') || path === '/owner' || path.startsWith('/owner/'))
   useEffect(() => {
     if (!ready) return
     if (session && path === '/login') go(safeNext(query.get('next')))
@@ -69,6 +70,7 @@ function RootInner() {
   else if (path === '/food/consult') page = <FoodServices slug="nutrition-consult" go={go} />
   else if (path === '/muscles') page = <Suspense fallback={<p className="muted empty">{t("جاري التحميل…")}</p>}><MuscleExplorer session={session} go={go} initialGroup={query.get('group')} /></Suspense>
   else if (session && path === '/workouts') page = <MemberArea session={session} tab="workouts" />
+  else if (session && seg[0] === 'pay' && seg[1] === 'return' && seg[2]) page = <PayReturn bookingId={seg[2]} go={go} />
   else if (session && path === '/bookings') page = <MyBookings go={go} />
   else if (session && path === '/profile') page = <><ProfileView session={session} /><main className="screen market"><ClaimCoachCard onDone={roles.refresh} />{roles.admin && !roles.admin.aal2 && <p className="card muted">{t("حسابك مصرّح له بلوحة الإدارة؛ افتحها لإكمال التحقق الثنائي.")} <button className="link" onClick={() => go('/owner')}>{t("لوحة المالك")}</button></p>}</main></>
   else if (session && (path === '/coach' || path.startsWith('/coach/'))) page = <CoachArea roles={roles} go={go} sub={path} />

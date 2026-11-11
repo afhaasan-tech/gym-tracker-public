@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { AUDIENCE_LABEL, CATEGORY_LABEL, DELIVERY_LABEL, FORMAT_LABEL, kwd, sportName, sportNameOf, useCoaches, useServices, useSlots, useSports, whenKw, type CatalogService } from './catalog'
@@ -9,6 +9,8 @@ import FoodViewJs from './kw/FoodView.jsx'
 import { GROUPS, exercisesForGroup, groupName } from './muscles'
 import { LoadingState, ErrorState, DemoBadge, Page, LockBadge } from './ui'
 import { t } from './i18n'
+import { canPay, startPayment, useBookingsRealtime } from './payments'
+import { PaymentBadge } from './ui'
 import { UserCheck, Users, Dumbbell, Salad, CalendarCheck, Trophy, Tag, type LucideIcon } from 'lucide-react'
 import { LIMITS, groupOpen, tierOf } from './plans'
 
@@ -226,6 +228,7 @@ const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 6
 export function BookingWizard({ serviceId, session, go }: { serviceId: string; session: Session | null; go: Go }) {
   const services = useServices(), coaches = useCoaches(), slots = useSlots(serviceId)
   const [w, setW] = useState<Wiz>(() => readWiz(serviceId))
+  const [paying, setPaying] = useState(false), [payErr, setPayErr] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [done, setDone] = useState<{ id: string; when: string; price: number } | null>(null)
   const s = services.data.find((x) => x.id === serviceId)
   useEffect(() => { try { sessionStorage.setItem(WIZ, JSON.stringify(w)) } catch { /* ignore */ } }, [w])
@@ -235,6 +238,13 @@ export function BookingWizard({ serviceId, session, go }: { serviceId: string; s
   const hasSlots = slots.data.length > 0
   const minor = s.min_age != null && s.min_age < 18
   const ready = (hasSlots ? Boolean(w.slotId) : Boolean(w.free)) && (!minor || w.consent)
+  async function pay(id: string) {
+    if (paying) return          // double-click guard (the server also allows only one open checkout per booking)
+    setPaying(true); setPayErr('')
+    const r = await startPayment(id)
+    if (r.url) { window.location.assign(r.url); return }
+    setPaying(false); setPayErr(r.error ?? '')
+  }
   async function confirm(e: FormEvent) {
     e.preventDefault(); setError('')
     if (!session) { go(loginTo(`/book/${serviceId}`)); return }
@@ -249,10 +259,16 @@ export function BookingWizard({ serviceId, session, go }: { serviceId: string; s
     setDone({ id: data.id, when: data.scheduled_at, price: Number(data.price_kwd) })
   }
   if (done) return (
-    <Page title={t("تم تثبيت الحجز التجريبي")}>
-      <section className="card confirm"><p>{t("هذا حجز تجريبي لعرض خطوات الحجز فقط؛ ما في دفع ولا تنفيذ فعلي.")}</p>
-        <dl className="facts"><dt>{t("الخدمة")}</dt><dd>{s.name}</dd><dt>{t("الموعد")}</dt><dd>{whenKw(done.when)}</dd><dt>{t("السعر (تجريبي)")}</dt><dd>{kwd(done.price)}</dd><dt>{t("حالة الدفع")}</dt><dd>{t("غير مفعّل")}</dd></dl>
-        <button className="primary" type="button" onClick={() => go('/bookings')}>{t("حجوزاتي")}</button></section>
+    <Page title={t("تم تثبيت الحجز")}>
+      <section className="pay-card confirm">
+        <p>{t("حجزك محفوظ. الدفع تجريبي (Sandbox) عبر بوابة UPayments: لا يتم سحب أي مبلغ حقيقي، والسعر يحدده الخادم.")}</p>
+        <dl className="facts"><dt>{t("الخدمة")}</dt><dd>{s.name}</dd><dt>{t("الموعد")}</dt><dd>{whenKw(done.when)}</dd><dt>{t("المبلغ المستحق")}</dt><dd><strong>{kwd(done.price)}</strong></dd><dt>{t("حالة الدفع")}</dt><dd><PaymentBadge status="pending" /></dd></dl>
+        {payErr && <p role="alert" className="error">{payErr}</p>}
+        <div className="row-actions">
+          {done.price > 0 && <button className="primary" type="button" disabled={paying} onClick={() => pay(done.id)}>{paying ? t("جاري تحويلك لصفحة الدفع…") : t("ادفع الآن")}</button>}
+          <button className="outline" type="button" onClick={() => go('/bookings')}>{t("حجوزاتي")}</button>
+        </div>
+      </section>
     </Page>)
   return (
     <Page title={s.name} kicker={coach ? t("مع {0}", [coach.display_name]) : t("خدمة من المنصة")}>
@@ -280,13 +296,25 @@ export function BookingWizard({ serviceId, session, go }: { serviceId: string; s
 }
 
 export function MyBookings({ go }: { go: Go }) {
-  const [rows, setRows] = useState<{ id: string; scheduled_at: string; booking_status: string; payment_status: string; price_kwd: number; participants: number; services: { name: string } | null }[] | null>(null)
-  useEffect(() => { supabase.from('bookings').select('id,scheduled_at,booking_status,payment_status,price_kwd,participants,services(name)').order('created_at', { ascending: false }).then(({ data }) => setRows((data ?? []) as never)) }, [])
-  const st: Record<string, string> = { pending: t("قيد المراجعة"), confirmed: t("مؤكد (تجريبي)"), cancelled: t("ملغي") }
+  type R = { id: string; scheduled_at: string; booking_status: string; payment_status: string; price_kwd: number; participants: number; services: { name: string } | null }
+  const [rows, setRows] = useState<R[] | null>(null), [busyId, setBusyId] = useState(''), [err, setErr] = useState('')
+  const load = useCallback(() => { void supabase.from('bookings').select('id,scheduled_at,booking_status,payment_status,price_kwd,participants,services(name)').order('created_at', { ascending: false }).then(({ data }) => setRows((data ?? []) as never)) }, [])
+  useEffect(() => { load() }, [load])
+  useBookingsRealtime(load, 'mine')
+  const st: Record<string, string> = { pending: t("قيد المراجعة"), confirmed: t("مؤكد"), cancelled: t("ملغي") }
+  async function pay(id: string) {
+    if (busyId) return
+    setBusyId(id); setErr('')
+    const r = await startPayment(id)
+    if (r.url) { window.location.assign(r.url); return }
+    setBusyId(''); setErr(r.error ?? '')
+  }
   return (
-    <Page title={t("حجوزاتي")} kicker={t("حجوزات تجريبية فقط")}>
+    <Page title={t("حجوزاتي")} kicker={t("الدفع تجريبي (Sandbox)")}>
+      {err && <p role="alert" className="banner error">{err}</p>}
       {rows === null ? <Loading /> : rows.length === 0 ? <><p className="muted empty">{t("ما عندك حجوزات.")}</p><button className="primary" onClick={() => go('/journey/book')}>{t("أبي أحجز جلسة")}</button></> :
-        <ul className="list bookings">{rows.map((b) => <li key={b.id} className="card row"><div className="row-body"><strong>{b.services?.name ?? t("خدمة")}</strong><span className="muted small">{whenKw(b.scheduled_at)} · {kwd(b.price_kwd)}</span><span className="chips"><span className="chip">{st[b.booking_status] ?? b.booking_status}</span><span className="chip">{t("الدفع: غير مفعّل")}</span><Demo /></span></div></li>)}</ul>}
+        <ul className="list bookings">{rows.map((b) => <li key={b.id} className="card row"><div className="row-body"><strong>{b.services?.name ?? t("خدمة")}</strong><span className="muted small">{whenKw(b.scheduled_at)} · {kwd(b.price_kwd)}</span><span className="chips"><span className="chip">{st[b.booking_status] ?? b.booking_status}</span><PaymentBadge status={b.payment_status} /></span></div>
+          {canPay(b.payment_status, Number(b.price_kwd), b.booking_status) && <div className="row-actions"><button className="primary" type="button" disabled={busyId === b.id} onClick={() => pay(b.id)}>{busyId === b.id ? t("جاري تحويلك لصفحة الدفع…") : b.payment_status === 'awaiting_payment' ? t("أكمل الدفع") : t("ادفع الآن")}</button></div>}</li>)}</ul>}
     </Page>
   )
 }
