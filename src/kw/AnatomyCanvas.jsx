@@ -66,11 +66,11 @@ function isVisibleThroughParents(object) {
  * Actions may be repeated by changing nonce. A pending action is applied
  * once the model has loaded, without reloading it for other prop changes.
  */
-export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onReady, action }) {
+export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onReady, action, groupOf }) {
   const containerRef = useRef(null);
   const engineRef = useRef(null);
-  const propsRef = useRef({ mode, onSelect, onReady, action });
-  propsRef.current = { mode, onSelect, onReady, action };
+  const propsRef = useRef({ mode, onSelect, onReady, action, groupOf });
+  propsRef.current = { mode, onSelect, onReady, action, groupOf };
   const pendingActionRef = useRef(null);
   const [retry, setRetry] = useState(0);
   const [status, setStatus] = useState('loading');
@@ -149,9 +149,8 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
     const meshes = [];
     const recordsById = new Map();
     const recordsByMesh = new WeakMap();
-    let selectedMesh = null;
-    let originalMaterial = null;
-    let highlightMaterials = [];
+    let selectedMeshes = []; // [{ mesh, original, highlights }] - a whole trainable group can be highlighted at once
+    const groupMeshes = new Map();
     let center = new THREE.Vector3();
     let size = new THREE.Vector3(1, 1, 1);
     let fitDistance = 3;
@@ -190,32 +189,32 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
     controls.addEventListener('change', scheduleRender);
 
     function restoreSelection() {
-      if (selectedMesh) selectedMesh.material = originalMaterial;
-      highlightMaterials.forEach((material) => material.dispose());
-      selectedMesh = null;
-      originalMaterial = null;
-      highlightMaterials = [];
+      selectedMeshes.forEach(({ mesh, original, highlights }) => { mesh.material = original; highlights.forEach((material) => material.dispose()); });
+      selectedMeshes = [];
+    }
+
+    function highlight(mesh) {
+      const original = mesh.material;
+      const originals = Array.isArray(original) ? original : [original];
+      const highlights = originals.map((material) => {
+        const h = material.clone();
+        if (h.color) h.color.set('#c8f45c');
+        if (h.emissive) { h.emissive.set('#304c08'); h.emissiveIntensity = 0.7; }
+        if ('map' in h) h.map = null;
+        if ('vertexColors' in h) h.vertexColors = false;
+        return h;
+      });
+      mesh.material = Array.isArray(original) ? highlights : highlights[0];
+      selectedMeshes.push({ mesh, original, highlights });
     }
 
     function selectMesh(mesh) {
       restoreSelection();
       const record = mesh ? recordsByMesh.get(mesh) : null;
       if (record) {
-        selectedMesh = mesh;
-        originalMaterial = mesh.material;
-        const originals = Array.isArray(originalMaterial) ? originalMaterial : [originalMaterial];
-        highlightMaterials = originals.map((material) => {
-          const highlight = material.clone();
-          if (highlight.color) highlight.color.set('#c8f45c');
-          if (highlight.emissive) {
-            highlight.emissive.set('#304c08');
-            highlight.emissiveIntensity = 0.7;
-          }
-          if ('map' in highlight) highlight.map = null;
-          if ('vertexColors' in highlight) highlight.vertexColors = false;
-          return highlight;
-        });
-        mesh.material = Array.isArray(originalMaterial) ? highlightMaterials : highlightMaterials[0];
+        // In "trainable" mode picking any part highlights the whole muscle group it belongs to.
+        const targets = record.group && currentMode === 'trainable' ? (groupMeshes.get(record.group) || [mesh]) : [mesh];
+        targets.forEach(highlight);
       }
       setSelected(record || null);
       propsRef.current.onSelect?.(record || null);
@@ -223,13 +222,14 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
     }
 
     function applyMode(nextMode) {
-      currentMode = ['all', 'muscle', 'bone'].includes(nextMode) ? nextMode : 'all';
+      currentMode = ['all', 'muscle', 'bone', 'trainable'].includes(nextMode) ? nextMode : 'all';
       // Layers filter individual drawables, not whole subtrees: a nested mesh
       // of the requested type remains visible even if its parent is a mesh.
       meshes.forEach((mesh) => {
         const type = mesh.userData.type;
         const categorized = type === 'muscle' || type === 'bone';
-        if (categorized && (currentMode === 'all' || type === currentMode)) mesh.layers.enable(0);
+        const shown = currentMode === 'trainable' ? Boolean(mesh.userData.group) : (currentMode === 'all' || type === currentMode);
+        if (categorized && shown) mesh.layers.enable(0);
         else mesh.layers.disable(0);
       });
       scheduleRender();
@@ -286,6 +286,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
           break;
         }
         case 'select': selectMesh(recordsById.get(command.id)?.mesh || null); break;
+        case 'selectGroup': selectMesh(groupMeshes.get(command.group)?.[0] || null); break;
         default: break;
       }
       return true;
@@ -398,7 +399,14 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
             detail: data.nameDetail || '',
             type: data.type,
             wikiLink: data.wikiLink || '',
+            group: null,
           };
+          const group = data.type === 'muscle' ? propsRef.current.groupOf?.(record.name) : null;
+          if (group) {
+            record.group = group; object.userData.group = group;
+            if (!groupMeshes.has(group)) groupMeshes.set(group, []);
+            groupMeshes.get(group).push(object);
+          }
           records.push(record);
           recordsById.set(record.id, { mesh: object, record });
           recordsByMesh.set(object, record);
@@ -418,7 +426,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
         if (active && !contextLost && error?.name !== 'AbortError') {
           propsRef.current.onReady?.([]);
           propsRef.current.onSelect?.(null);
-          setErrorMessage('تعذّر تحميل نموذج التشريح. تحقق من الاتصال ورابط النموذج ثم أعد المحاولة.');
+          setErrorMessage('تعذّر تحميل المجسّم ثلاثي الأبعاد. تحقق من الاتصال ثم أعد المحاولة.');
           setStatus('error');
         }
       } finally {
