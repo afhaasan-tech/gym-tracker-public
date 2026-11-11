@@ -22,7 +22,7 @@ export const EXTRA: Record<string, string> = {
   'حجز جلسات المدربين (تجريبي حالياً)': 'Book coach sessions (demo for now)',
   'البرامج المتقدمة والمجموعة الكاملة': 'Advanced programs and the full collection',
   'سوّي حساب مجاني': 'Create a free account',
-  'حيل بريميوم': 'HAYL Premium',
+  'ڤورا بريميوم': 'VORA Premium',
   'للتدريب الذاتي المتقدم': 'For advanced self-guided training',
   '{0} د.ك / شهر': 'KWD {0} / month',
   'برامج تدريب منظمة متقدمة': 'Advanced structured training programs',
@@ -56,7 +56,7 @@ export const EXTRA: Record<string, string> = {
   'سعر أي خدمة اليوم للعرض فقط: {0}': 'Today any service price is for display only: {0}',
   'الباقات': 'Plans',
   'بريميوم': 'Premium',
-  'عرض تعريفي: {0} تمارين إضافية لهذي المجموعة ضمن حيل بريميوم (متاح بعد الإطلاق).': 'Introductory preview: {0} more exercises for this group are part of HAYL Premium (available after launch).',
+  'عرض تعريفي: {0} تمارين إضافية لهذي المجموعة ضمن ڤورا بريميوم (متاح بعد الإطلاق).': 'Introductory preview: {0} more exercises for this group are part of VORA Premium (available after launch).',
   'شوف الباقات': 'See plans',
   'اللغة': 'Language',
   'صار خطأ غير متوقع': 'Something went wrong',
@@ -107,4 +107,5 @@ export const EXTRA: Record<string, string> = {
   'خدمة تجريبية: جلسة تدريب قوة فردية.': 'Demo service: an individual strength session.',
   'لياقة وظيفية جماعية (تجريبي)': 'Group functional fitness (demo)',
   'خدمة تجريبية: حصة لياقة وظيفية لمجموعة صغيرة.': 'Demo service: a functional fitness class for a small group.',
+  'تصفّح مجاني، حساب عضو مجاني، وبريميوم قريباً.': 'Free browsing, a free member account, and Premium coming soon.',
 }

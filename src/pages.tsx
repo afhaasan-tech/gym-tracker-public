@@ -9,6 +9,7 @@ import FoodViewJs from './kw/FoodView.jsx'
 import { GROUPS, exercisesForGroup, groupName } from './muscles'
 import { LoadingState, ErrorState, DemoBadge, Page, LockBadge } from './ui'
 import { t } from './i18n'
+import { UserCheck, Users, Dumbbell, Salad, CalendarCheck, Trophy, Tag, type LucideIcon } from 'lucide-react'
 import { LIMITS, groupOpen, tierOf } from './plans'
 
 type Go = (to: string) => void
@@ -23,13 +24,13 @@ function Crumbs({ items, go }: { items: [string, string?][]; go: Go }) {
 }
 
 // ------------------------------------------------------------------ home
-const choices = (): { label: string; to: string; hint: string }[] => [
-  { label: t('أبي مدرب خاص'), to: '/journey/private', hint: t('جلسات فردية مع مدرب مستقل') },
-  { label: t('أبي تدريب جماعي'), to: '/journey/group', hint: t('حصص لمجموعات صغيرة') },
-  { label: t('أبي أتمرن بروحي'), to: '/self', hint: t('تمارين مجانية حسب هدفك') },
-  { label: t('أبي نظام غذائي'), to: '/food', hint: t('يومية الأكل والمعلومات والخدمات') },
-  { label: t('أبي أحجز جلسة'), to: '/journey/book', hint: t('من الرياضة إلى الموعد') },
-  { label: t('أبي أتصفح الرياضات'), to: '/sports', hint: t('كل الرياضات المتاحة') },
+const choices = (): { label: string; to: string; hint: string; Icon: LucideIcon }[] => [
+  { label: t('أبي مدرب خاص'), to: '/journey/private', Icon: UserCheck, hint: t('جلسات فردية مع مدرب مستقل') },
+  { label: t('أبي تدريب جماعي'), to: '/journey/group', Icon: Users, hint: t('حصص لمجموعات صغيرة') },
+  { label: t('أبي أتمرن بروحي'), to: '/self', Icon: Dumbbell, hint: t('تمارين مجانية حسب هدفك') },
+  { label: t('أبي نظام غذائي'), to: '/food', Icon: Salad, hint: t('يومية الأكل والمعلومات والخدمات') },
+  { label: t('أبي أحجز جلسة'), to: '/journey/book', Icon: CalendarCheck, hint: t('من الرياضة إلى الموعد') },
+  { label: t('أبي أتصفح الرياضات'), to: '/sports', Icon: Trophy, hint: t('كل الرياضات المتاحة') },
 ]
 export function HomePage({ go }: { go: Go }) {
   const sports = useSports(), coaches = useCoaches(), services = useServices()
@@ -47,7 +48,7 @@ export function HomePage({ go }: { go: Go }) {
         </form>
       </section>
       <section aria-label={t("ابدأ من هنا")}><h2>{t("وش تبي اليوم؟")}</h2>
-        <div className="choice-grid">{choices().map((c) => <button key={c.to} type="button" className="choice card" onClick={() => go(c.to)}><strong>{c.label}</strong><span className="muted small">{c.hint}</span></button>)}</div>
+        <div className="choice-grid">{choices().map((c) => <button key={c.to} type="button" className="choice card" onClick={() => go(c.to)}><c.Icon size={22} aria-hidden="true" className="choice-icon" /><strong>{c.label}</strong><span className="muted small">{c.hint}</span></button>)}</div>
       </section>
       <section><div className="section-head"><h2>{t("اكتشف الرياضات")}</h2><button className="link" type="button" onClick={() => go('/sports')}>{t("عرض الكل")}</button></div>
         {sports.loading ? <Loading /> : <div className="chips wrap">{cats.map((c) => <button key={c} type="button" className="chip chip-btn" onClick={() => go(`/sports?cat=${c}`)}>{CATEGORY_LABEL[c] ?? c}</button>)}</div>}
@@ -62,6 +63,7 @@ export function HomePage({ go }: { go: Go }) {
         <div className="card"><h2>{t("تمارين مجانية بروحك")}</h2><p className="muted">{t("اختر عضلتك أو هدفك وشوف التمارين المناسبة. الحفظ في سجلك يحتاج حساب.")}</p><div className="row-actions"><button className="outline" type="button" onClick={() => go('/self')}>{t("أتمرن بروحي")}</button><button className="outline" type="button" onClick={() => go('/muscles')}>{t("اختَر عضلتك")}</button></div></div>
         <div className="card"><h2>{t("الغذاء والتغذية")}</h2><p className="muted">{t("يومية أكل مجانية للأعضاء، ومعلومات عامة، وخدمات تغذية من مزوّدين مؤهلين عند اعتمادهم.")}</p><div className="row-actions"><button className="outline" type="button" onClick={() => go('/food')}>{t("استكشف الغذاء")}</button></div></div>
       </section>
+      <section className="card soft row"><div className="row-body"><h2>{t('الباقات والأسعار')}</h2><p className="muted small">{t('تصفّح مجاني، حساب عضو مجاني، وبريميوم قريباً.')}</p></div><button className="outline" type="button" onClick={() => go('/plans')}><Tag size={16} aria-hidden="true" /> {t('شوف الباقات')}</button></section>
       <p className="muted small note">{t("ملاحظة: الحجوزات والأسعار المعروضة تجريبية فقط ولا يتم أي دفع أو تنفيذ فعلي.")} {services.data.length > 0 && t("عدد الخدمات المنشورة حالياً: {0}.", [services.data.length])}</p>
     </main>
   )
@@ -317,7 +319,7 @@ export function ExerciseCards({ group, session, go, back }: { group: string; ses
             <details><summary>{t("خطوات الأداء")}</summary><ol>{e.instructions.map((i) => <li key={i}>{i}</li>)}</ol></details>
             <div className="row-actions"><span className="chip">{e.sets} × {e.reps}</span><button className="outline" type="button" onClick={() => save(e)}>{session ? t("أضف إلى تماريني") : t("سجّل دخولك لحفظه")}</button></div>
           </li>))}</ul>)}
-      {hidden > 0 && <div className="card soft"><p className="small"><LockBadge label={t('بريميوم')} /> {t('عرض تعريفي: {0} تمارين إضافية لهذي المجموعة ضمن حيل بريميوم (متاح بعد الإطلاق).', [hidden])}</p><button className="outline" type="button" onClick={() => go(session ? '/plans' : loginTo(back))}>{session ? t('شوف الباقات') : t('سوّي حساب مجاني')}</button></div>}
+      {hidden > 0 && <div className="card soft"><p className="small"><LockBadge label={t('بريميوم')} /> {t('عرض تعريفي: {0} تمارين إضافية لهذي المجموعة ضمن ڤورا بريميوم (متاح بعد الإطلاق).', [hidden])}</p><button className="outline" type="button" onClick={() => go(session ? '/plans' : loginTo(back))}>{session ? t('شوف الباقات') : t('سوّي حساب مجاني')}</button></div>}
     </>
   )
 }

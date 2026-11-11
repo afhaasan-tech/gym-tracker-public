@@ -9,7 +9,7 @@ const DICT: Record<string, string> = { ...EN, ...EXTRA }
  * (names, bios, service titles) is never passed through t().
  */
 export type Lang = 'ar' | 'en'
-const KEY = 'hayl-lang'
+const KEY = 'vora-lang'
 const read = (): Lang => { try { const v = localStorage.getItem(KEY); if (v === 'ar' || v === 'en') return v } catch { /* storage blocked */ } return 'ar' }
 let current: Lang = read()
 const listeners = new Set<() => void>()
@@ -18,7 +18,7 @@ function applyDocument() {
   if (typeof document === 'undefined') return
   document.documentElement.lang = current
   document.documentElement.dir = current === 'ar' ? 'rtl' : 'ltr'
-  document.title = current === 'ar' ? 'حيل — رياضتك ومدربك في الكويت' : 'HAYL — Your sport. Your coach. Kuwait.'
+  document.title = current === 'ar' ? 'ڤورا — رياضتك ومدربك في الكويت' : 'VORA — Your sport. Your coach. Kuwait.'
 }
 applyDocument()
 

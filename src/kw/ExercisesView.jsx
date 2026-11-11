@@ -127,7 +127,7 @@ export default function ExercisesView({ exercises = EXERCISES, logs = [], onSave
     <main className="exercises-view" dir="rtl">
       <header className="exercises-hero">
         <div>
-          <span className="eyebrow"><Sparkles size={15} aria-hidden="true" /> {t("حيل / الحركة بوعي")}</span>
+          <span className="eyebrow"><Sparkles size={15} aria-hidden="true" /> {t("ڤورا / الحركة بوعي")}</span>
           <h1>{t("مكتبة التمارين")}</h1>
           <p>{t("اختر تمرينك، تعرّف على طريقته، وسجّل تقدمك في جلسة واحدة.")}</p>
         </div>

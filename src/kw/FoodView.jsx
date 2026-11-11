@@ -192,7 +192,7 @@ function FoodView({
       <div className="food-shell">
         <header className="food-header">
           <div>
-            <div className="food-eyebrow"><Apple size={16} /> {t("تغذية حيل")}</div>
+            <div className="food-eyebrow"><Apple size={16} /> {t("تغذية ڤورا")}</div>
             <h1>{t("وقود يومك،")} <span>{t("بهدوء.")}</span></h1>
             <p>{t("سجّل وجباتك وتابع السعرات دون تعقيد أو أرقام مبالغ فيها.")}</p>
           </div>

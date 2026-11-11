@@ -1,4 +1,4 @@
-/* HAYL design system. Tokens -> base -> shell -> components. Logical properties everywhere so RTL (ar) and LTR (en) share one stylesheet. */
+/* VORA design system. Tokens -> base -> shell -> components. Logical properties everywhere so RTL (ar) and LTR (en) share one stylesheet. */
 :root{
   --bg:#060F1C; --bg-2:#0A1829; --surface:#0E1D31; --surface-2:#12253D; --line:#1E344F; --line-2:#2B4767;
   --text:#EAF1F8; --muted:#92A6BF; --accent:#22D3B6; --accent-2:#5FE9D1; --accent-ink:#03211C; --accent-soft:rgba(34,211,182,.12);
@@ -207,3 +207,6 @@ button:disabled{opacity:.5;cursor:not-allowed}
 @media(prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important;scroll-behavior:auto !important}}
 
 .state-screen{min-height:100vh;display:grid;place-content:center;justify-items:center;gap:14px;text-align:center;padding:24px}
+
+.choice-icon{color:var(--accent);margin-bottom:4px}
+.choice-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}

@@ -138,7 +138,7 @@ if (phase === 'coach1') {
     await p.getByRole('navigation', { name: 'أقسام التطبيق' }).getByRole('button', { name: 'لوحة المدرب' }).click(); await p.getByText('طلبك بانتظار تفعيل المالك').waitFor()
   })
   await step('pending coach edits own profile and proposes a specialization; cannot publish or add services yet', async () => {
-    await p.getByRole('button', { name: 'ملفي' }).click(); await p.waitForFunction(() => document.querySelector('form input[required]')?.value.length > 1); await p.getByLabel('نبذة').fill('مدرب اختبار لمنصة حيل'); await p.getByLabel('المناطق (افصل بفاصلة)').fill('حولي'); await p.getByRole('button', { name: 'احفظ الملف' }).click(); await p.getByText('تم حفظ الملف').waitFor()
+    await p.getByRole('button', { name: 'ملفي' }).click(); await p.waitForFunction(() => document.querySelector('form input[required]')?.value.length > 1); await p.getByLabel('نبذة').fill('مدرب اختبار لمنصة ڤورا'); await p.getByLabel('المناطق (افصل بفاصلة)').fill('حولي'); await p.getByRole('button', { name: 'احفظ الملف' }).click(); await p.getByText('تم حفظ الملف').waitFor()
     await p.getByLabel('اقترح تخصصاً').selectOption({ label: 'اليوغا' }); await p.getByText('أُرسل التخصص لمراجعة المالك').waitFor()
     const c = await signed(C); assert.ok((await c.from('services').insert({ name: 'x', price_kwd: 1 })).error)
     assert.equal((await c.rpc('is_coach')).data, false)

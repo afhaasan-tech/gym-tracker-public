@@ -33,7 +33,7 @@ export default function PlansPage({ go, signedIn }: { go: Go; signedIn: boolean 
           { text: t('مجموعة تعريفية من التمارين الذاتية ({0})', [LIMITS.exercises.member]) }, { text: t('كل مجموعات العضلات بتمارين تعريفية') },
           { text: t('حجز جلسات المدربين (تجريبي حالياً)') }, { text: t('البرامج المتقدمة والمجموعة الكاملة'), on: false }]}
           action={signedIn ? undefined : { label: t('سوّي حساب مجاني'), onClick: () => go('/login?next=%2Fplans') }} />
-        <Plan feature name={t('حيل بريميوم')} sub={t('للتدريب الذاتي المتقدم')} badge={soon}
+        <Plan feature name={t('ڤورا بريميوم')} sub={t('للتدريب الذاتي المتقدم')} badge={soon}
           price={t('{0} د.ك / شهر', [PRICING.premiumMonthlyKwd.toFixed(3)])} rows={[
             { text: t('برامج تدريب منظمة متقدمة') }, { text: t('مجموعة التمارين الذاتية الكاملة') }, { text: t('مزايا متابعة التقدم المحسّنة') },
             { text: t('موارد وخطط تعليمية مميزة') }, { text: t('مزايا إضافية للمنصة') }, { text: t('أو {0} د.ك سنوياً (فرضية مبدئية)', [PRICING.premiumYearlyKwd.toFixed(3)]) }]}

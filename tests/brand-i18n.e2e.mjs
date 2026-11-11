@@ -11,7 +11,7 @@ const SIZES = [[390, 844], [768, 1024], [1280, 800]]
 const AR = /[؀-ۿ]/
 async function open(w, h, lang) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } })
-  await ctx.addInitScript((l) => { try { localStorage.setItem('hayl-lang', l) } catch {} }, lang)
+  await ctx.addInitScript((l) => { try { localStorage.setItem('vora-lang', l) } catch {} }, lang)
   return { ctx, page: await ctx.newPage() }
 }
 await step('brand: no "Gym Tracker"/"جيم تراكر" on any public route (both languages)', async () => {
@@ -47,11 +47,11 @@ await step('switcher: AR→EN→AR flips dir, text and title; persists after rel
   await page.goto(base + '#/'); await page.waitForTimeout(500)
   assert.equal(await page.evaluate(() => document.documentElement.dir), 'rtl')
   await page.getByRole('button', { name: 'English', exact: true }).first().click(); await page.waitForTimeout(300)
-  assert.equal(await page.evaluate(() => document.documentElement.dir), 'ltr'); assert.match(await page.title(), /HAYL/)
+  assert.equal(await page.evaluate(() => document.documentElement.dir), 'ltr'); assert.match(await page.title(), /VORA/)
   await page.reload(); await page.waitForTimeout(600)
   assert.equal(await page.evaluate(() => document.documentElement.lang), 'en'); assert.ok(await page.getByRole('button', { name: 'Log in' }).count() > 0)
   await page.getByRole('button', { name: 'العربية', exact: true }).first().click(); await page.waitForTimeout(300)
-  assert.equal(await page.evaluate(() => document.documentElement.dir), 'rtl'); assert.match(await page.title(), /حيل/)
+  assert.equal(await page.evaluate(() => document.documentElement.dir), 'rtl'); assert.match(await page.title(), /ڤورا/)
   await ctx.close()
 })
 await step('navigation: every public nav item opens a non-empty page (EN, desktop)', async () => {
@@ -70,7 +70,7 @@ await step('plans: shows provisional prices, Available After Launch, and no live
 await step('visitor limits: locked muscle group redirects to login; open group shows capped exercises + premium note', async () => {
   const { ctx, page } = await open(1280, 800, 'en'); await page.goto(base + '#/self?group=chest'); await page.waitForTimeout(700)
   const cards = await page.locator('main ul.list > li').count(); assert.ok(cards >= 1 && cards <= 2, 'cards ' + cards)
-  assert.ok(await page.getByText(/HAYL Premium/).count() > 0)
+  assert.ok(await page.getByText(/VORA Premium/).count() > 0)
   await ctx.close()
 })
 await step('unknown route shows a friendly page with a way home', async () => {

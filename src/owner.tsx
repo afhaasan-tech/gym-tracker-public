@@ -21,7 +21,7 @@ export function MfaGate({ onDone }: { onDone: () => void }) {
     setBusy(true); setMsg('')
     const all = await supabase.auth.mfa.listFactors()
     for (const f of (all.data?.all ?? []).filter((x) => x.status !== 'verified')) await supabase.auth.mfa.unenroll({ factorId: f.id })
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'HAYL admin' })
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'VORA admin' })
     setBusy(false)
     if (error || !data) { setMsg(t("تعذر بدء الإعداد. تأكد أن التحقق الثنائي (TOTP) مفعّل في إعدادات Supabase Auth.")); return }
     setEnroll({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret })
