@@ -45,8 +45,8 @@ if (phase === 'public') {
     await p.getByRole('button', { name: 'اليوغا' }).waitFor(); await p.getByText('يوغا للمبتدئات').first().waitFor()
   })
   await step('sports catalog: 28 sports, category filter works, detail page lists published services', async () => {
-    await open(p, '/sports'); await p.locator('.sport-card').first().waitFor(); assert.equal(await p.locator('.sport-card').count(), 28)
-    await p.getByRole('group', { name: 'تصفية حسب النوع' }).getByRole('button', { name: 'رياضات المضرب' }).click(); assert.equal(await p.locator('.sport-card').count(), 5)
+    await open(p, '/sports'); await p.locator('.sport-card').first().waitFor(); await p.waitForFunction(() => document.querySelectorAll('.sport-card').length === 28, null, { timeout: 8000 })
+    await p.getByRole('group', { name: 'تصفية حسب النوع' }).getByRole('button', { name: 'رياضات المضرب' }).click(); await p.waitForFunction(() => document.querySelectorAll('.sport-card').length === 5, null, { timeout: 8000 })
     await open(p, '/sports/yoga'); await h1(p, 'اليوغا').waitFor(); await p.getByText('يوغا للمبتدئات').first().waitFor()
   })
   await step('coaches: demo coach profiles are labelled, filterable, and open a profile with published services', async () => {
