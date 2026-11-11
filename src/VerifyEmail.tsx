@@ -1,5 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from './supabase'
+import { Brand } from './brand'
+import { t } from './i18n'
+import { LangSwitch } from './ui'
 
 /** Seconds before a new code may be requested (matches Supabase's per-user limit of one email every 60 s). */
 export const RESEND_COOLDOWN_SECONDS = 60
@@ -24,18 +27,18 @@ const isRateLimited = (e: Failure) =>
 
 /** Arabic message for a failed code check. Supabase reports a wrong code and an expired code with the same error. */
 export function otpErrorMessage(e: Failure): string {
-  if (isRateLimited(e)) return 'حاولت مرات واجد. انتظر شوي وبعدين جرّب مرة ثانية.'
-  if (e.code === 'otp_expired' || /expired|invalid/i.test(e.message ?? '')) return 'الرمز غلط أو انتهت صلاحيته. تأكد من الرمز، أو اطلب رمز جديد.'
-  if (/failed to fetch|network/i.test(e.message ?? '')) return 'ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.'
-  return 'ما قدرنا نتحقق من الرمز. جرّب مرة ثانية.'
+  if (isRateLimited(e)) return t("حاولت مرات واجد. انتظر شوي وبعدين جرّب مرة ثانية.")
+  if (e.code === 'otp_expired' || /expired|invalid/i.test(e.message ?? '')) return t("الرمز غلط أو انتهت صلاحيته. تأكد من الرمز، أو اطلب رمز جديد.")
+  if (/failed to fetch|network/i.test(e.message ?? '')) return t("ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.")
+  return t("ما قدرنا نتحقق من الرمز. جرّب مرة ثانية.")
 }
 
 /** Arabic message for a failed "send a new code" request. */
 export function resendErrorMessage(e: Failure): string {
-  if (isRateLimited(e)) return 'ارسلنا لك رمز قبل شوي. انتظر الوقت المعروض وبعدين اطلب رمز جديد.'
-  if (e.code === 'email_address_invalid' || e.code === 'email_address_not_authorized') return 'ما نقدر نرسل رمز لهذا الإيميل. تأكد إنه إيميل صحيح.'
-  if (/failed to fetch|network/i.test(e.message ?? '')) return 'ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.'
-  return 'ما قدرنا نرسل الرمز. جرّب مرة ثانية بعد شوي.'
+  if (isRateLimited(e)) return t("ارسلنا لك رمز قبل شوي. انتظر الوقت المعروض وبعدين اطلب رمز جديد.")
+  if (e.code === 'email_address_invalid' || e.code === 'email_address_not_authorized') return t("ما نقدر نرسل رمز لهذا الإيميل. تأكد إنه إيميل صحيح.")
+  if (/failed to fetch|network/i.test(e.message ?? '')) return t("ما قدرنا نتصل. شيّك على الإنترنت وجرّب مرة ثانية.")
+  return t("ما قدرنا نرسل الرمز. جرّب مرة ثانية بعد شوي.")
 }
 
 /**
@@ -52,15 +55,15 @@ export default function VerifyEmail({ email, notice, onBack }: { email: string; 
 
   useEffect(() => {
     if (cooldown <= 0) return
-    const t = setTimeout(() => setCooldown(remainingCooldown(email)), 1000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setCooldown(remainingCooldown(email)), 1000)
+    return () => clearTimeout(timer)
   }, [cooldown, email])
 
   async function verify(e: FormEvent) {
     e.preventDefault()
     setError(''); setInfo('')
-    if (!/^\d{6}$/.test(code)) { setError('اكتب الرمز المكوّن من 6 أرقام.'); return }
-    if (wrong >= MAX_WRONG_ATTEMPTS) { setError('محاولات واجد غلط. اطلب رمز جديد أول.'); return }
+    if (!/^\d{6}$/.test(code)) { setError(t("اكتب الرمز المكوّن من 6 أرقام.")); return }
+    if (wrong >= MAX_WRONG_ATTEMPTS) { setError(t("محاولات واجد غلط. اطلب رمز جديد أول.")); return }
     setBusy(true)
     const { error: err } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' })
     setBusy(false)
@@ -83,29 +86,29 @@ export default function VerifyEmail({ email, notice, onBack }: { email: string; 
       setError(resendErrorMessage(err)); return
     }
     startResendCooldown(email); setCooldown(RESEND_COOLDOWN_SECONDS); setWrong(0); setCode('')
-    setInfo('أرسلنا لك رمز جديد. الرمز القديم ما عاد يشتغل.')
+    setInfo(t("أرسلنا لك رمز جديد. الرمز القديم ما عاد يشتغل."))
   }
 
   return (
     <main className="auth-shell">
       <section className="auth-hero">
-        <div className="brand"><span>جيم تراكر</span></div>
-        <div className="hero-copy"><h1>أكّد إيميلك</h1><p>آخر خطوة قبل ما تبدأ.</p></div>
+        <LangSwitch />
+        <div className="brand"><Brand /></div>
+        <div className="hero-copy"><h1>{t("أكّد إيميلك")}</h1><p>{t("آخر خطوة قبل ما تبدأ.")}</p></div>
       </section>
       <section className="auth-panel">
         <form className="card auth-card" onSubmit={verify} noValidate>
-          <p>أرسلنا رمز من 6 أرقام إلى <strong dir="ltr" className="verify-email">{email}</strong>. اكتبه هنا لتفعيل حسابك.</p>
-          <label>رمز التحقق
-            <input className="otp-input" dir="ltr" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
+          <p>{t("أرسلنا رمز من 6 أرقام إلى")} <strong dir="ltr" className="verify-email">{email}</strong>{t(". اكتبه هنا لتفعيل حسابك.")}</p>
+          <label>{t("رمز التحقق")} <input className="otp-input" dir="ltr" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
               value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" required />
           </label>
           {error && <p role="alert" className="error">{error}</p>}
           {info && <p role="status" className="info">{info}</p>}
-          <button className="primary" disabled={busy}>{busy ? 'لحظة…' : 'تحقّق'}</button>
+          <button className="primary" disabled={busy}>{busy ? t("لحظة…") : t("تحقّق")}</button>
           <button type="button" className="link" onClick={resend} disabled={cooldown > 0 || busy}>
-            {cooldown > 0 ? `إعادة إرسال الرمز بعد ${cooldown} ثانية` : 'ما وصلك الرمز؟ أرسل رمز جديد'}
+            {cooldown > 0 ? t("إعادة إرسال الرمز بعد {0} ثانية", [cooldown]) : t("ما وصلك الرمز؟ أرسل رمز جديد")}
           </button>
-          <button type="button" className="link" onClick={onBack}>رجوع</button>
+          <button type="button" className="link" onClick={onBack}>{t("رجوع")}</button>
         </form>
       </section>
     </main>

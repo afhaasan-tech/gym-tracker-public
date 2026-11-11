@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { Brand } from './brand'
 import { authErrorMessage, callAi, PHOTO_BUCKET, supabase, validatePhoto, type Workout } from './supabase'
 import VerifyEmail, { startResendCooldown } from './VerifyEmail'
 import { useFoodDiary } from './useFoodDiary'
 import ExercisesViewJs from './kw/ExercisesView.jsx'
 import FoodViewJs from './kw/FoodView.jsx'
-import { EXERCISES, FOODS } from './kw/data.js'
+import { exercisesLocalized, foodsLocalized } from './i18n/data'
+import { t } from './i18n'
+import { LangSwitch } from './ui'
 
 // The ported views are plain JS; give them explicit prop types here.
 type LibraryLog = { id: string; date: string; name: string; sets: number; reps: number; weight: number; duration: number }
@@ -18,9 +21,8 @@ const FoodView = FoodViewJs as unknown as React.ComponentType<{
   foods: unknown[]; meals: unknown[]; customFoods: unknown[]; calorieGoal: number
   onAddMeal: (m: unknown) => boolean; onDeleteMeal: (id: string) => boolean; onAddCustomFood: (f: unknown) => boolean
 }>
-import './kw/kw-scope.css'
 
-const AI_OK_MESSAGE = 'تم اقتراح ملخص. تقدر تعدّله قبل الحفظ.'
+const aiOkMessage = () => t('تم اقتراح ملخص. تقدر تعدّله قبل الحفظ.')
 
 export function Logo() {
   return (
@@ -50,7 +52,7 @@ export function Auth() {
       // Sends a recovery link; the app opens the set-new-password screen when the user returns through it.
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
       if (error) setError(authErrorMessage(error))
-      else setInfo('إذا الإيميل مسجّل عندنا، راح توصلك رسالة فيها رابط تغيير الرقم السري.')
+      else setInfo(t("إذا الإيميل مسجّل عندنا، راح توصلك رسالة فيها رابط تغيير الرقم السري."))
     } else if (signup) {
       const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
       if (error) setError(authErrorMessage(error))
@@ -58,12 +60,12 @@ export function Auth() {
       // With it on there is no session until the e-mailed code is verified.
       else if (!data.session) {
         // Supabase hides whether an address exists: an already-registered address comes back with no identities and no e-mail is sent.
-        if (data.user && data.user.identities?.length === 0) setError('هذا الإيميل مسجّل من قبل. سجّل دخول بدل ما تسوي حساب جديد.')
+        if (data.user && data.user.identities?.length === 0) setError(t("هذا الإيميل مسجّل من قبل. سجّل دخول بدل ما تسوي حساب جديد."))
         else { startResendCooldown(email); setPending({ email }) }
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error?.code === 'email_not_confirmed') setPending({ email, notice: 'حسابك ما انأكد بعد. اطلب رمز جديد واكتبه هنا.' })
+      if (error?.code === 'email_not_confirmed') setPending({ email, notice: t("حسابك ما انأكد بعد. اطلب رمز جديد واكتبه هنا.") })
       else if (error) setError(authErrorMessage(error))
     }
     setBusy(false)
@@ -74,30 +76,29 @@ export function Auth() {
   return (
     <main className="auth-shell">
       <section className="auth-hero">
-        <div className="brand"><Logo /><span>جيم تراكر</span></div>
-        <a className="link" href="#/">← تصفّح الرياضات والمدربين بدون حساب</a>
+        <LangSwitch />
+        <div className="brand"><Brand /></div>
+        <a className="link" href="#/">{t("← تصفّح الرياضات والمدربين بدون حساب")}</a>
         <div className="hero-copy">
-          <h1>{forgot ? 'نسيت الرقم السري؟' : signup ? 'سوّي حسابك' : 'هلا فيك، سجّل دخولك'}</h1>
-          <p>سجّل كل سيت، وشوف تطورك.</p>
+          <h1>{forgot ? t("نسيت الرقم السري؟") : signup ? t("سوّي حسابك") : t("هلا فيك، سجّل دخولك")}</h1>
+          <p>{t("سجّل كل سيت، وشوف تطورك.")}</p>
         </div>
       </section>
       <section className="auth-panel">
         <form className="card auth-card" onSubmit={submit}>
-          <label>الإيميل
-            <input type="email" dir="ltr" required autoComplete="email" value={email}
+          <label>{t("الإيميل")} <input type="email" dir="ltr" required autoComplete="email" value={email}
               onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </label>
-          {!forgot && <label>الرقم السري
-            <input type="password" dir="ltr" required minLength={8}
+          {!forgot && <label>{t("الرقم السري")} <input type="password" dir="ltr" required minLength={8}
               autoComplete={signup ? 'new-password' : 'current-password'} value={password}
-              onChange={(e) => setPassword(e.target.value)} placeholder="ثمان خانات على الأقل" />
+              onChange={(e) => setPassword(e.target.value)} placeholder={t("ثمان خانات على الأقل")} />
           </label>}
           {error && <p role="alert" className="error">{error}</p>}
           {info && <p role="status" className="info">{info}</p>}
-          <button className="primary" disabled={busy}>{busy ? 'لحظة…' : forgot ? 'ارسل رابط التغيير' : signup ? 'سجّل' : 'دخول'}</button>
-          {!signup && !forgot && <button type="button" className="link" onClick={() => { setForgot(true); setError(''); setInfo('') }}>نسيت الرقم السري؟</button>}
+          <button className="primary" disabled={busy}>{busy ? t("لحظة…") : forgot ? t("ارسل رابط التغيير") : signup ? t("سجّل") : t("دخول")}</button>
+          {!signup && !forgot && <button type="button" className="link" onClick={() => { setForgot(true); setError(''); setInfo('') }}>{t("نسيت الرقم السري؟")}</button>}
           <button type="button" className="link" onClick={() => { if (forgot) setForgot(false); else setSignup(!signup); setError(''); setInfo('') }}>
-            {forgot ? 'رجوع لتسجيل الدخول' : signup ? 'عندك حساب؟ سجّل دخول' : 'جديد؟ سوّي حساب'}
+            {forgot ? t("رجوع لتسجيل الدخول") : signup ? t("عندك حساب؟ سجّل دخول") : t("جديد؟ سوّي حساب")}
           </button>
         </form>
       </section>
@@ -114,7 +115,7 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    if (password !== confirm) { setError('الرقمين السريين مب متطابقين.'); return }
+    if (password !== confirm) { setError(t("الرقمين السريين مب متطابقين.")); return }
     setBusy(true); setError('')
     const { error } = await supabase.auth.updateUser({ password })
     setBusy(false)
@@ -125,19 +126,18 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
   return (
     <main className="auth-shell">
       <section className="auth-hero">
-        <div className="brand"><Logo /><span>جيم تراكر</span></div>
-        <div className="hero-copy"><h1>رقم سري جديد</h1><p>اختر رقم سري جديد لحسابك.</p></div>
+        <LangSwitch />
+        <div className="brand"><Brand /></div>
+        <div className="hero-copy"><h1>{t("رقم سري جديد")}</h1><p>{t("اختر رقم سري جديد لحسابك.")}</p></div>
       </section>
       <section className="auth-panel">
         <form className="card auth-card" onSubmit={submit}>
-          <label>الرقم السري الجديد
-            <input type="password" dir="ltr" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="ثمان خانات على الأقل" />
+          <label>{t("الرقم السري الجديد")} <input type="password" dir="ltr" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("ثمان خانات على الأقل")} />
           </label>
-          <label>أكّد الرقم السري
-            <input type="password" dir="ltr" required minLength={8} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          <label>{t("أكّد الرقم السري")} <input type="password" dir="ltr" required minLength={8} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </label>
           {error && <p role="alert" className="error">{error}</p>}
-          <button className="primary" disabled={busy}>{busy ? 'لحظة…' : 'احفظ الرقم السري'}</button>
+          <button className="primary" disabled={busy}>{busy ? t("لحظة…") : t("احفظ الرقم السري")}</button>
         </form>
       </section>
     </main>
@@ -146,7 +146,7 @@ export function SetNewPassword({ onDone }: { onDone: () => void }) {
 
 function PhotoPlaceholder() {
   return (
-    <div className="thumb placeholder" role="img" aria-label="ما في صورة">
+    <div className="thumb placeholder" role="img" aria-label={t("ما في صورة")}>
       <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="2" /><path d="m21 16-5-5-9 9" /></svg>
     </div>
   )
@@ -178,12 +178,12 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
   /** Saves a workout from the exercise library into the user's Supabase workouts (RLS applies). */
   async function saveLibraryLog(item: { name: string; sets: number; reps: number; weight: number }) {
     if (!(item.sets > 0 && item.reps > 0)) {
-      return { error: 'حفظ التمارين في حسابك يحتاج جولات وتكرارات أكبر من صفر. تسجيل المدة فقط غير مدعوم حالياً.' }
+      return { error: t("حفظ التمارين في حسابك يحتاج جولات وتكرارات أكبر من صفر. تسجيل المدة فقط غير مدعوم حالياً.") }
     }
     const { error } = await supabase.from('workouts').insert({
       exercise: item.name.slice(0, 100), sets: item.sets, reps: item.reps, weight: item.weight || 0,
     })
-    if (error) return { error: 'تعذر حفظ التمرين: ' + error.message }
+    if (error) return { error: t("تعذر حفظ التمرين: ") + error.message }
     await load()
     return { ok: true }
   }
@@ -224,8 +224,8 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
     const r = await callAi<{ summary: string }>('ai-summary', {
       exercise: exercise.trim(), sets: Number(sets), reps: Number(reps), weight: Number(weight || 0),
     })
-    if (r.data?.summary) { setSummary(r.data.summary); setAiMsg(AI_OK_MESSAGE) }
-    else setAiMsg(r.error ?? 'صار خطأ في طلب الذكاء الاصطناعي.')
+    if (r.data?.summary) { setSummary(r.data.summary); setAiMsg(aiOkMessage()) }
+    else setAiMsg(r.error ?? t("صار خطأ في طلب الذكاء الاصطناعي."))
     setAiBusy(false)
   }
 
@@ -233,7 +233,7 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
     setAnalysisBusy(true); setAnalysisMsg(''); setAnalysis('')
     const r = await callAi<{ analysis: string }>('ai-analysis', {})
     if (r.data?.analysis) setAnalysis(r.data.analysis)
-    else setAnalysisMsg(r.error ?? 'صار خطأ في طلب الذكاء الاصطناعي.')
+    else setAnalysisMsg(r.error ?? t("صار خطأ في طلب الذكاء الاصطناعي."))
     setAnalysisBusy(false)
   }
 
@@ -245,7 +245,7 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
       const ext = photo.type === 'image/jpeg' ? 'jpg' : photo.type.split('/')[1]
       photo_url = `${session.user.id}/${crypto.randomUUID()}.${ext}`
       const up = await supabase.storage.from(PHOTO_BUCKET).upload(photo_url, photo, { contentType: photo.type })
-      if (up.error) { setError('فشل رفع الصورة: ' + up.error.message); setBusy(false); return }
+      if (up.error) { setError(t("فشل رفع الصورة: ") + up.error.message); setBusy(false); return }
     }
     // user_id is NOT sent: the database fills it from the authenticated session (auth.uid()).
     const { error } = await supabase.from('workouts').insert({
@@ -274,67 +274,63 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
     <>
       {tab === 'library' && (
         <main className="kw-scope">
-          <ExercisesView exercises={EXERCISES}
+          <ExercisesView exercises={exercisesLocalized()}
             logs={items.map((w) => ({ id: w.id, date: w.created_at.slice(0, 10), name: w.exercise, sets: w.sets, reps: w.reps, weight: w.weight, duration: 0 }))}
             onSaveLog={saveLibraryLog} />
         </main>
       )}
       {tab === 'food' && (
         <main className="kw-scope">
-          <p className="kw-notice" role="note">سجل الغذاء محفوظ بأمان في حسابك، وتشوفه من أي جهاز تسجّل منه دخولك.</p>
-          {food.status === 'loading' && <p className="kw-notice" role="status">جاري تحميل سجل الغذاء…</p>}
+          <p className="kw-notice" role="note">{t("سجل الغذاء محفوظ بأمان في حسابك، وتشوفه من أي جهاز تسجّل منه دخولك.")}</p>
+          {food.status === 'loading' && <p className="kw-notice" role="status">{t("جاري تحميل سجل الغذاء…")}</p>}
           {food.status === 'error' && (
-            <p className="kw-notice error" role="alert">ما قدرنا نحمّل سجل الغذاء من حسابك. شيّك على الإنترنت. <button type="button" className="link" onClick={food.reload}>حاول مرة ثانية</button></p>
+            <p className="kw-notice error" role="alert">{t("ما قدرنا نحمّل سجل الغذاء من حسابك. شيّك على الإنترنت.")} <button type="button" className="link" onClick={food.reload}>{t("حاول مرة ثانية")}</button></p>
           )}
           {food.problem && (
-            <p className="kw-notice error" role="alert">{food.problem} <button type="button" className="link" onClick={food.dismissProblem}>تمام</button></p>
+            <p className="kw-notice error" role="alert">{food.problem} <button type="button" className="link" onClick={food.dismissProblem}>{t("تمام")}</button></p>
           )}
-          {food.imported && <p className="kw-notice info" role="status">نقلنا {food.imported.meals} وجبة و{food.imported.foods} طعام خاص من هذا الجهاز إلى حسابك.</p>}
+          {food.imported && <p className="kw-notice info" role="status">{t("نقلنا")} {food.imported.meals} {t("وجبة و")}{food.imported.foods} {t("طعام خاص من هذا الجهاز إلى حسابك.")}</p>}
           {food.offerImport && (
-            <section className="kw-notice" role="region" aria-label="نقل سجل الغذاء القديم">
-              <p>لقينا على هذا الجهاز سجل غذاء قديم ({food.legacyCount.meals} وجبة، {food.legacyCount.foods} طعام خاص). تبي تنقله إلى حسابك؟ ما راح نحذف شي من الجهاز، وما راح يتكرر لو نقلته مرتين.</p>
-              <button type="button" className="primary" disabled={food.importing} onClick={() => void food.importLegacy()}>{food.importing ? 'لحظة…' : 'انقل السجل لحسابي'}</button>{' '}
-              <button type="button" className="link" disabled={food.importing} onClick={food.skipLegacy}>لا، تجاهله</button>
+            <section className="kw-notice" role="region" aria-label={t("نقل سجل الغذاء القديم")}>
+              <p>{t("لقينا على هذا الجهاز سجل غذاء قديم (")}{food.legacyCount.meals} {t("وجبة،")} {food.legacyCount.foods} {t("طعام خاص). تبي تنقله إلى حسابك؟ ما راح نحذف شي من الجهاز، وما راح يتكرر لو نقلته مرتين.")}</p>
+              <button type="button" className="primary" disabled={food.importing} onClick={() => void food.importLegacy()}>{food.importing ? t("لحظة…") : t("انقل السجل لحسابي")}</button>{' '}
+              <button type="button" className="link" disabled={food.importing} onClick={food.skipLegacy}>{t("لا، تجاهله")}</button>
             </section>
           )}
-          <FoodView foods={FOODS} meals={food.meals} onAddMeal={food.addMeal} onDeleteMeal={food.deleteMeal}
+          <FoodView foods={foodsLocalized()} meals={food.meals} onAddMeal={food.addMeal} onDeleteMeal={food.deleteMeal}
             customFoods={food.customFoods} onAddCustomFood={food.addCustomFood} calorieGoal={2000} />
         </main>
       )}
       {tab === 'workouts' && <main className="screen">
         <div className="page-title">
-          <span className="eyebrow">داخل بحساب <bdi dir="ltr">{session.user.email}</bdi></span>
-          <h1>تماريني</h1>
+          <span className="eyebrow">{t("داخل بحساب")} <bdi dir="ltr">{session.user.email}</bdi></span>
+          <h1>{t("تماريني")}</h1>
         </div>
 
         <div className="layout">
           <div className="col">
             <form className="card" onSubmit={add}>
-              <h2>أضف تمرين</h2>
-              <label>التمرين
-                <input required maxLength={100} value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="مثال: بنش برس" />
+              <h2>{t("أضف تمرين")}</h2>
+              <label>{t("التمرين")} <input required maxLength={100} value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder={t("مثال: بنش برس")} />
               </label>
               <div className="grid3">
-                <label>السيتات
-                  <input type="number" dir="ltr" required min={1} value={sets} onChange={(e) => setSets(e.target.value)} placeholder="3" />
+                <label>{t("السيتات")} <input type="number" dir="ltr" required min={1} value={sets} onChange={(e) => setSets(e.target.value)} placeholder="3" />
                 </label>
-                <label>الريبات
-                  <input type="number" dir="ltr" required min={1} value={reps} onChange={(e) => setReps(e.target.value)} placeholder="10" />
+                <label>{t("الريبات")} <input type="number" dir="ltr" required min={1} value={reps} onChange={(e) => setReps(e.target.value)} placeholder="10" />
                 </label>
-                <label>الوزن (كجم)
-                  <input type="number" dir="ltr" min={0} step="any" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="60" />
+                <label>{t("الوزن (كجم)")} <input type="number" dir="ltr" min={0} step="any" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="60" />
                 </label>
               </div>
 
               <div className="photo">
-                {preview ? <img className="thumb" src={preview} alt="معاينة صورة التمرين" /> : <PhotoPlaceholder />}
+                {preview ? <img className="thumb" src={preview} alt={t("معاينة صورة التمرين")} /> : <PhotoPlaceholder />}
                 <div className="photo-actions">
-                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label="ملف صورة التمرين" hidden onChange={choosePhoto} />
+                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" aria-label={t("ملف صورة التمرين")} hidden onChange={choosePhoto} />
                   <div className="photo-buttons">
-                    <button type="button" className="outline" onClick={() => fileRef.current?.click()}>{photo ? 'غيّر الصورة' : 'أضف صورة (اختياري)'}</button>
-                    {photo && <button type="button" className="link" onClick={clearPhoto}>شيل الصورة</button>}
+                    <button type="button" className="outline" onClick={() => fileRef.current?.click()}>{photo ? t("غيّر الصورة") : t("أضف صورة (اختياري)")}</button>
+                    {photo && <button type="button" className="link" onClick={clearPhoto}>{t("شيل الصورة")}</button>}
                   </div>
-                  <span className="muted small">صور بس، وبحد أقصى 5 ميغا</span>
+                  <span className="muted small">{t("صور بس، وبحد أقصى 5 ميغا")}</span>
                 </div>
               </div>
               {photoError && <p role="alert" className="error">{photoError}</p>}
@@ -342,23 +338,22 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
               <div className="ai">
                 <button type="button" className="ai-btn" disabled={!canSuggest || aiBusy} onClick={suggestSummary}>
                   <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
-                  {aiBusy ? 'يفكر…' : 'اقترح ملخص بالذكاء الاصطناعي'}
+                  {aiBusy ? t("يفكر…") : t("اقترح ملخص بالذكاء الاصطناعي")}
                 </button>
-                {aiMsg && <p role="status" className={summary && aiMsg === AI_OK_MESSAGE ? 'info' : 'error'}>{aiMsg}</p>}
-                <label>الملخص (اختياري، تقدر تعدّله)
-                  <textarea rows={3} maxLength={1000} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="اكتب ملخصك، أو خلّ الذكاء الاصطناعي يقترح لك" />
+                {aiMsg && <p role="status" className={summary && aiMsg === aiOkMessage() ? 'info' : 'error'}>{aiMsg}</p>}
+                <label>{t("الملخص (اختياري، تقدر تعدّله)")} <textarea rows={3} maxLength={1000} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder={t("اكتب ملخصك، أو خلّ الذكاء الاصطناعي يقترح لك")} />
                 </label>
               </div>
 
-              <button className="primary" disabled={busy}>{busy ? 'يحفظ…' : 'أضف تمرين'}</button>
+              <button className="primary" disabled={busy}>{busy ? t("يحفظ…") : t("أضف تمرين")}</button>
             </form>
 
             <section className="card insight">
-              <h2>آخر 7 أيام</h2>
-              <p className="muted small">الذكاء الاصطناعي يوريك العضلات اللي أخذت اهتمام أقل.</p>
-              <button type="button" className="outline" disabled={analysisBusy} onClick={analyze}>{analysisBusy ? 'يحلل…' : 'حلّل أسبوعي'}</button>
+              <h2>{t("آخر 7 أيام")}</h2>
+              <p className="muted small">{t("الذكاء الاصطناعي يوريك العضلات اللي أخذت اهتمام أقل.")}</p>
+              <button type="button" className="outline" disabled={analysisBusy} onClick={analyze}>{analysisBusy ? t("يحلل…") : t("حلّل أسبوعي")}</button>
               {analysisMsg && <p role="alert" className="error">{analysisMsg}</p>}
-              {analysis && <p className="analysis" aria-label="تحليل الأسبوع">{analysis}</p>}
+              {analysis && <p className="analysis" aria-label={t("تحليل الأسبوع")}>{analysis}</p>}
             </section>
           </div>
 
@@ -366,26 +361,26 @@ export function MemberArea({ session, tab }: { session: Session; tab: 'workouts'
             {error && <p role="alert" className="error banner">{error}</p>}
 
             <section className="history">
-              <h2>السجل</h2>
-              {loading && <p className="muted">جاري التحميل…</p>}
-              {!loading && items.length === 0 && <p className="muted empty">ما في تمارين للحين. أضف أول تمرين من فوق.</p>}
+              <h2>{t("السجل")}</h2>
+              {loading && <p className="muted">{t("جاري التحميل…")}</p>}
+              {!loading && items.length === 0 && <p className="muted empty">{t("ما في تمارين للحين. أضف أول تمرين من فوق.")}</p>}
               <ul>
                 {items.map((w) => (
                   <li key={w.id} className="card row">
                     {w.photo_url && urls[w.photo_url]
-                      ? <img className="thumb" src={urls[w.photo_url]} alt={`صورة ${w.exercise}`} />
+                      ? <img className="thumb" src={urls[w.photo_url]} alt={t("صورة {0}", [w.exercise])} />
                       : <PhotoPlaceholder />}
                     <div className="row-body">
                       <strong>{w.exercise}</strong>
                       <span className="chips">
-                        <span className="chip">{w.sets} سيت</span>
-                        <span className="chip">{w.reps} ريب</span>
-                        <span className="chip">{w.weight} كجم</span>
+                        <span className="chip">{w.sets} {t("سيت")}</span>
+                        <span className="chip">{w.reps} {t("ريب")}</span>
+                        <span className="chip">{w.weight} {t("كجم")}</span>
                         <span className="muted small">{new Date(w.created_at).toLocaleDateString('ar-KW-u-nu-latn', { day: 'numeric', month: 'short' })}</span>
                       </span>
                       {w.summary && <span className="summary">{w.summary}</span>}
                     </div>
-                    <button className="icon" aria-label={`احذف ${w.exercise}`} onClick={() => remove(w)}>
+                    <button className="icon" aria-label={t("احذف {0}", [w.exercise])} onClick={() => remove(w)}>
                       <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
                     </button>
                   </li>

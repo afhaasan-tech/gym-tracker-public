@@ -134,11 +134,11 @@ if (phase === 'public') {
 if (phase === 'coach1') {
   const C = cred(6), p = await newPage()
   await step('invited member claims coach access from their profile; the coach area opens as PENDING', async () => {
-    await login(p, C, '/profile'); await p.getByRole('button', { name: 'استلم دعوة المدرب' }).click(); await p.getByText('حسابك بانتظار تفعيل المالك').waitFor({ timeout: 15000 })
+    await login(p, C, '/profile'); const claim = p.getByRole('button', { name: 'استلم دعوة المدرب' }); const already = await p.getByRole('navigation', { name: 'أقسام التطبيق' }).getByRole('button', { name: 'لوحة المدرب' }).waitFor({ timeout: 6000 }).then(() => true, () => false); if (!already && await claim.waitFor({ timeout: 8000 }).then(() => true, () => false)) { await claim.click(); await p.getByText('حسابك بانتظار تفعيل المالك').waitFor({ timeout: 15000 }) } // re-runnable: an already-claimed invitation just opens the pending area
     await p.getByRole('navigation', { name: 'أقسام التطبيق' }).getByRole('button', { name: 'لوحة المدرب' }).click(); await p.getByText('طلبك بانتظار تفعيل المالك').waitFor()
   })
   await step('pending coach edits own profile and proposes a specialization; cannot publish or add services yet', async () => {
-    await p.getByRole('button', { name: 'ملفي' }).click(); await p.getByLabel('نبذة').fill('مدرب اختبار لمنصة جيم تراكر'); await p.getByLabel('المناطق (افصل بفاصلة)').fill('حولي'); await p.getByRole('button', { name: 'احفظ الملف' }).click(); await p.getByText('تم حفظ الملف').waitFor()
+    await p.getByRole('button', { name: 'ملفي' }).click(); await p.waitForFunction(() => document.querySelector('form input[required]')?.value.length > 1); await p.getByLabel('نبذة').fill('مدرب اختبار لمنصة حيل'); await p.getByLabel('المناطق (افصل بفاصلة)').fill('حولي'); await p.getByRole('button', { name: 'احفظ الملف' }).click(); await p.getByText('تم حفظ الملف').waitFor()
     await p.getByLabel('اقترح تخصصاً').selectOption({ label: 'اليوغا' }); await p.getByText('أُرسل التخصص لمراجعة المالك').waitFor()
     const c = await signed(C); assert.ok((await c.from('services').insert({ name: 'x', price_kwd: 1 })).error)
     assert.equal((await c.rpc('is_coach')).data, false)

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { t } from '../i18n'
 
 const buttonStyle = {
   minHeight: 42,
@@ -98,7 +99,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     } catch (error) {
-      setErrorMessage('تعذّر تشغيل العرض ثلاثي الأبعاد. تأكد من دعم WebGL في جهازك أو متصفحك ثم أعد المحاولة.');
+      setErrorMessage(t("تعذّر تشغيل العرض ثلاثي الأبعاد. تأكد من دعم WebGL في جهازك أو متصفحك ثم أعد المحاولة."));
       setStatus('error');
       return () => { active = false; };
     }
@@ -181,7 +182,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
           contextLost = true;
           propsRef.current.onReady?.([]);
           propsRef.current.onSelect?.(null);
-          setErrorMessage('تعذّر عرض النموذج ثلاثي الأبعاد. تحقق من دعم WebGL ثم أعد المحاولة.');
+          setErrorMessage(t("تعذّر عرض النموذج ثلاثي الأبعاد. تحقق من دعم WebGL ثم أعد المحاولة."));
           setStatus('error');
         }
       });
@@ -355,7 +356,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
       propsRef.current.onSelect?.(null);
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
-      setErrorMessage('فُقد اتصال WebGL. أعد المحاولة لاستعادة العرض ثلاثي الأبعاد.');
+      setErrorMessage(t("فُقد اتصال WebGL. أعد المحاولة لاستعادة العرض ثلاثي الأبعاد."));
       setStatus('error');
     }
     const canvas = renderer.domElement;
@@ -395,7 +396,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
           if (data.type !== 'muscle' && data.type !== 'bone') return;
           const record = {
             id: object.uuid,
-            name: data.name || object.name || 'جزء دون اسم',
+            name: data.name || object.name || t("جزء دون اسم"),
             detail: data.nameDetail || '',
             type: data.type,
             wikiLink: data.wikiLink || '',
@@ -426,7 +427,7 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
         if (active && !contextLost && error?.name !== 'AbortError') {
           propsRef.current.onReady?.([]);
           propsRef.current.onSelect?.(null);
-          setErrorMessage('تعذّر تحميل المجسّم ثلاثي الأبعاد. تحقق من الاتصال ثم أعد المحاولة.');
+          setErrorMessage(t("تعذّر تحميل المجسّم ثلاثي الأبعاد. تحقق من الاتصال ثم أعد المحاولة."));
           setStatus('error');
         }
       } finally {
@@ -473,22 +474,22 @@ export default function AnatomyCanvas({ modelUrl, mode = 'all', onSelect, onRead
   }, [action?.type, action?.id, action?.nonce]);
 
   const buttons = [
-    ['front', 'أمام'], ['back', 'خلف'], ['left', 'الجانب الأيسر'],
-    ['zoomIn', 'تكبير'], ['zoomOut', 'تصغير'], ['reset', 'إعادة العرض'],
+    ['front', t("أمام")], ['back', t("خلف")], ['left', t("الجانب الأيسر")],
+    ['zoomIn', t("تكبير")], ['zoomOut', t("تصغير")], ['reset', t("إعادة العرض")],
   ];
 
   return (
-    <section dir="rtl" lang="ar" aria-label="مجسّم العضلات ثلاثي الأبعاد" aria-describedby={descriptionId} style={{ width: '100%', minWidth: 0 }}>
+    <section dir="rtl" lang="ar" aria-label={t("مجسّم العضلات ثلاثي الأبعاد")} aria-describedby={descriptionId} style={{ width: '100%', minWidth: 0 }}>
       <div style={{ position: 'relative', height: 'min(65vh, 620px)', minHeight: 340, overflow: 'hidden', borderRadius: 14, background: '#141d17', border: '1px solid #354438' }}>
         <div ref={containerRef} aria-hidden="true" style={{ width: '100%', height: '100%' }} />
-        {status === 'loading' && <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#e4eddf', background: '#141d17e8', padding: 20, textAlign: 'center' }}>جارٍ تحميل المجسّم…</div>}
-        {status === 'error' && <div role="alert" style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#fff', background: '#141d17f5', padding: 24, textAlign: 'center' }}><span>{errorMessage}</span><button type="button" style={buttonStyle} onClick={() => setRetry((value) => value + 1)}>إعادة المحاولة</button></div>}
+        {status === 'loading' && <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#e4eddf', background: '#141d17e8', padding: 20, textAlign: 'center' }}>{t("جارٍ تحميل المجسّم…")}</div>}
+        {status === 'error' && <div role="alert" style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#fff', background: '#141d17f5', padding: 24, textAlign: 'center' }}><span>{errorMessage}</span><button type="button" style={buttonStyle} onClick={() => setRetry((value) => value + 1)}>{t("إعادة المحاولة")}</button></div>}
       </div>
-      <div role="group" aria-label="التحكم باتجاه النموذج وتكبيره" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+      <div role="group" aria-label={t("التحكم باتجاه النموذج وتكبيره")} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
         {buttons.map(([type, label]) => <button key={type} type="button" style={buttonStyle} disabled={status !== 'ready'} onClick={() => engineRef.current?.runAction({ type })}>{label}</button>)}
       </div>
-      <p id={descriptionId} style={{ color: '#b8c8b7', fontSize: 12, lineHeight: 1.8, margin: '10px 0 0' }}>اسحب أو المس لتدوير النموذج، واستخدم عجلة الفأرة أو إصبعين للتكبير والتصغير. اضغط على عضلة لاختيار مجموعتها، أو اختر المجموعة من القائمة. يمكن أيضًا استخدام أزرار الاتجاه والتكبير.</p>
-      <p aria-live="polite" style={{ color: '#dce8d3', fontSize: 12, margin: '5px 0 0' }}>{selected ? `العضلة المحددة: ${selected.name}` : ''}</p>
+      <p id={descriptionId} style={{ color: '#b8c8b7', fontSize: 12, lineHeight: 1.8, margin: '10px 0 0' }}>{t("اسحب أو المس لتدوير النموذج، واستخدم عجلة الفأرة أو إصبعين للتكبير والتصغير. اضغط على عضلة لاختيار مجموعتها، أو اختر المجموعة من القائمة. يمكن أيضًا استخدام أزرار الاتجاه والتكبير.")}</p>
+      <p aria-live="polite" style={{ color: '#dce8d3', fontSize: 12, margin: '5px 0 0' }}>{selected ? t("العضلة المحددة: {0}", [selected.name]) : ''}</p>
     </section>
   );
 }

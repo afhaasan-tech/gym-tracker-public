@@ -1,4 +1,6 @@
-# Gym Tracker
+# HAYL (حيل) — formerly "Gym Tracker"
+
+> **Provisional working brand.** HAYL / حيل is a working name for the CODED Day 9 submission. No trademark, domain or business-name clearance has been performed; do not treat it as legally available. Repository, Vercel project, Supabase project and database table names keep their original `gym-tracker` names on purpose.
 
 React + Vite + Supabase (Auth, Postgres with RLS, Storage, Edge Functions). Live: https://gym-tracker-afhaasan.vercel.app
 
@@ -66,3 +68,22 @@ A Kuwait-first, multi-sport discovery platform (Arabic RTL) on React + Vite + Su
 - Day 9 core: Supabase Auth (e-mail + password, e-mail code verification), per-user ownership and RLS on workouts/food/profile/bookings, editable profile with calculated age.
 
 Tests: `tests/db/` (local Postgres role/RLS suite, 175 checks) and `tests/*.e2e.mjs` (real browser against the deployed site; use pre-verified test accounts, see `tests/make-test-users-sql.mjs`).
+
+
+## Brand, language and design (final Day 9 pass)
+- **Name:** HAYL / حيل (Kuwaiti-dialect "حيل" = very / a lot, as in "حيل زين"; also "strength/effort"). Mark: two dhow sails (turquoise + gold) over a hull. Palette: deep navy `#060F1C`, turquoise `#22D3B6`, gold `#F2B84B`. Type: IBM Plex Sans + IBM Plex Sans Arabic. Alternates considered: هيلا / Heila, همّة / Himma. Name-conflict findings are in the submission notes; no legal clearance is claimed.
+- **Language:** العربية | English switcher (topbar, login, verify screen). Arabic = RTL, English = LTR, saved in `localStorage` (`hayl-lang`) so it survives refresh and sign-in. Implementation: `src/i18n/` (Arabic string is the key; `t()`), English dictionary `en.ts` + `en-extra.ts`, localized data in `data-en.ts`. User-entered content (names, notes, real coaches' text) is never translated. Check: `node tests/i18n-coverage.mjs`.
+- **Design system:** single stylesheet `src/index.css` (tokens, typography scale, cards, chips, forms, sidebar/bottom-nav), shared components in `src/ui.tsx`, branded loading/empty/error states and an error boundary.
+- **Plans (display only, no payments):** `/plans`, constants in `src/plans.ts`. Free visitor, free member, HAYL Premium (*Available After Launch*, provisional KWD 2.900/month or 24.000/year), independent coach services (price set by coach, owner approved, configurable platform commission default 12% **not applied**), food/nutrition (basic diary free; specialist services later, no restrictive diets or automatic weight-loss goals). All prices are **assumptions**. Limits apply only to catalogue content (visitor 2 / member 3 exercises per muscle group; visitor muscle groups: chest, legs, core); saved workouts, food records and bookings are never limited. Nobody can be marked premium/paid by the app; `payment_status` stays server-controlled. Day 10 will add verified payments.
+
+## Final test results (HAYL build, run against real Supabase)
+| Suite | Result |
+|---|---|
+| `tests/db/run-local.sh` (local Postgres roles/RLS) | 175 / 175 PASS |
+| `tests/day9-live.e2e.mjs` (auth, persistence, RLS, ownership, profile, bookings) | 25 / 25 PASS |
+| `tests/food-diary-live.e2e.mjs` | 17 / 17 PASS |
+| `tests/market-live.e2e.mjs` public / coach1 / coach2 / coach3 | 22 / 2 / 2 / 4 PASS |
+| `tests/brand-i18n.e2e.mjs` (bilingual, RTL/LTR, overflow at 390/768/1280, nav, plans, limits, untranslated-Arabic scan) | 13 / 13 PASS |
+| `tests/i18n-coverage.mjs` | 0 untranslated `t()` strings |
+
+**BLOCKED / not claimed:** (1) real e-mail delivery of the OTP code (needs a real inbox; `tests/verify-email-live.e2e.mjs` supports an interactive code step); (2) owner dashboard in a browser with TOTP MFA (needs the owner to enrol and run `tests/admin-live.e2e.mjs`); owner actions in the coach tests were performed by calling the real `owner_*` RPCs under a simulated aal2 owner claim in SQL, as fixtures only; (3) Emergency Admin has not been assigned.
