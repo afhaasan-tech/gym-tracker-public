@@ -11,5 +11,23 @@ $P -f "$HERE/tests/db/supabase-stubs.sql"
 for f in "$HERE"/supabase/migrations/*.sql; do $P -f "$f" 2>&1 | grep -v NOTICE || true; done
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/marketplace-rls.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
 
+echo "--- credits"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/credits.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- credits concurrency"
+PORT=$PORT bash "$HERE/tests/db/credits-concurrency.sh"
+
+echo "--- ai backend"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/ai-backend.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- ai budget concurrency"
+PORT=$PORT bash "$HERE/tests/db/ai-budget-concurrency.sh"
+
+echo "--- m3"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/m3.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- hardening"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/hardening.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
+
+echo "--- least privilege"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/least-privilege.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
 echo "--- payments"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/payments.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
