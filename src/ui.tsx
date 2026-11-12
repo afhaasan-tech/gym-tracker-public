@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Lock } from 'lucide-react'
 import { getLang, setLang, t, useLang } from './i18n'
+import { PAY_LABEL } from './payments'
 
 /** Shared building blocks so every screen uses the same header, state and badge patterns. */
 export function PageHeader({ title, kicker, children }: { title: string; kicker?: string; children?: ReactNode }) {
@@ -28,3 +29,6 @@ export function LangSwitch() {
   )
 }
 export const currentLang = getLang
+
+/** Payment status badge: pending gray, awaiting blue, paid green, failed red, expired orange. */
+export const PaymentBadge = ({ status }: { status: string }) => <span className={`pay-badge pay-${status.replace('_', '-')}`} data-status={status}>{PAY_LABEL(status)}</span>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from './supabase'
 import { kwd, sportNameOf, useSports, whenKw, CATEGORY_LABEL } from './catalog'
+import { PaymentBadge } from './ui'
+import { useBookingsRealtime } from './payments'
 import type { Roles } from './useRoles'
 import { t } from './i18n'
 
@@ -182,14 +184,15 @@ function Bookings({ sup }: { sup: boolean }) {
   const [rows, setRows] = useState<B[]>([]), [reason, setReason] = useState(''), [msg, setMsg] = useState('')
   const load = useCallback(async () => { const { data } = await supabase.from('bookings').select('id,scheduled_at,booking_status,payment_status,price_kwd,services(name)').order('created_at', { ascending: false }).limit(200); setRows((data ?? []) as unknown as B[]) }, [])
   useEffect(() => { void load() }, [load])
+  useBookingsRealtime(() => { void load() }, 'owner')   // verified payment changes appear without a manual refresh
   const run = async (p: PromiseLike<{ error: { message?: string } | null }>, ok: string) => { const { error } = await p; setMsg(error ? msgOf(error) : ok); void load() }
   const st: Record<string, string> = { pending: t("قيد المراجعة"), confirmed: t("مؤكد"), cancelled: t("ملغي") }
   return (
     <>
-      <p className="muted small">{t("كل الحجوزات تجريبية. حالة الدفع تُدار من الخادم فقط وغير قابلة للتعديل من اللوحة.")}</p>
+      <p className="muted small">{t("الدفع تجريبي (Sandbox). حالة الدفع تُحدَّث من الخادم فقط بعد التحقق من البوابة، وغير قابلة للتعديل من اللوحة.")}</p>
       {msg && <p role="status" className="info">{msg}</p>}
       <label>{t("سبب الإلغاء")}<input value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-      <ul className="list">{rows.map((b) => <li key={b.id} className="card row"><div className="row-body"><strong>{b.services?.name}</strong><span className="muted small">{whenKw(b.scheduled_at)} · {kwd(b.price_kwd)} {t("· الدفع:")} {b.payment_status === 'pending' ? t("غير مفعّل") : b.payment_status}</span><span className="chip">{st[b.booking_status]}</span></div>
+      <ul className="list">{rows.map((b) => <li key={b.id} className="card row"><div className="row-body"><strong>{b.services?.name}</strong><span className="muted small">{whenKw(b.scheduled_at)} · {kwd(b.price_kwd)} </span><span className="chips"><span className="chip">{st[b.booking_status]}</span><PaymentBadge status={b.payment_status} /></span></div>
         <div className="row-actions">{sup && b.booking_status === 'pending' && <button className="primary" type="button" onClick={() => run(supabase.from('bookings').update({ booking_status: 'confirmed' }).eq('id', b.id), t("تم التأكيد."))}>{t("أكّد")}</button>}{b.booking_status !== 'cancelled' && <button className="outline" type="button" onClick={() => run(supabase.rpc('admin_cancel_booking', { p_booking: b.id, p_reason: reason }), t("أُلغي الحجز."))}>{t("إلغاء")}</button>}</div></li>)}
         {rows.length === 0 && <li className="muted">{t("لا توجد حجوزات.")}</li>}</ul>
     </>

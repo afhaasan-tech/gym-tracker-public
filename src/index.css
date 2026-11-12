@@ -211,3 +211,22 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .choice-icon{color:var(--accent);margin-bottom:4px}
 .choice-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 @media(min-width:900px){.choice-grid{grid-template-columns:repeat(3,1fr)}}
+
+/* ---- payments: payment badges + off-white receipt card (charcoal text, refined turquoise accent) */
+.pay-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:var(--fs-xs);font-weight:600;border:1px solid transparent;white-space:nowrap}
+.pay-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pay-pending{color:#c3ccd8;background:rgba(150,163,180,.16);border-color:rgba(150,163,180,.35)}
+.pay-awaiting-payment{color:#7db6ff;background:rgba(66,133,244,.16);border-color:rgba(66,133,244,.4)}
+.pay-paid{color:#59d98a;background:rgba(46,184,100,.16);border-color:rgba(46,184,100,.4)}
+.pay-failed{color:#ff8f85;background:rgba(235,87,87,.16);border-color:rgba(235,87,87,.4)}
+.pay-expired{color:#ffb25b;background:rgba(242,153,38,.16);border-color:rgba(242,153,38,.4)}
+.pay-card{background:#f6f3ec;color:#23282e;border-radius:var(--radius);padding:22px;display:grid;gap:12px;max-width:620px;box-shadow:var(--shadow);border:1px solid #e4ded1}
+.pay-card h2{margin:0;color:#23282e}.pay-card p{color:#46505a;margin:0}.pay-card .muted{color:#6b7480}
+.pay-card .facts{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:4px 0}.pay-card .facts dt{color:#6b7480}.pay-card .facts dd{margin:0;font-weight:600}
+.pay-card .primary{background:#14a89a;color:#fff;border:0}.pay-card .primary:hover:not(:disabled){background:#0f8f83}
+.pay-card .outline{color:#23282e;border-color:#bfb8a8;background:transparent}
+.pay-card .spinner{border-color:#cfc9bb;border-top-color:#14a89a}
+.pay-ok{color:#1d7a4a!important}.pay-bad{color:#b3392f!important}.pay-warn{color:#a8651a!important}
+.pay-card .pay-pending{color:#4a5560;background:#e8e4da}.pay-card .pay-paid{color:#17653d;background:#d6efdf}.pay-card .pay-failed{color:#9b2f27;background:#f6dad7}
+.pay-card .pay-expired{color:#8a5313;background:#f8e6cc}.pay-card .pay-awaiting-payment{color:#1f56b5;background:#d9e6fb}
+button.soon,.primary:disabled{cursor:not-allowed}

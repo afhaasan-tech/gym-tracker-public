@@ -122,15 +122,15 @@ await step('profile validation: height 10 cm is rejected (browser and database)'
 })
 
 // ---- 9-12: bookings ----
-await step('A: demo booking created through the UI, confirmation shows server price and no Pay button', async () => {
+await step('A: demo booking created through the UI, confirmation shows server price, Pending badge and a Pay Now button (not yet clicked)', async () => {
   const svc = (await client().from('services').select('id').eq('platform_owned', true).eq('price_kwd', 12).limit(1)).data[0]
   await pageA.goto(base + '#/book/' + svc.id); await pageA.getByText('جلسة تدريب شخصي').first().waitFor()
   const d = new Date(Date.now() + 5 * 86400000); const pad = (n) => String(n).padStart(2, '0')
   await pageA.getByLabel(/الموعد المطلوب/).fill(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T18:00`)
   await pageA.getByRole('button', { name: 'ثبّت الحجز التجريبي' }).click()
-  await pageA.getByRole('heading', { name: 'تم تثبيت الحجز التجريبي' }).waitFor()
+  await pageA.getByRole('heading', { name: 'تم تثبيت الحجز' }).waitFor()
   await pageA.getByText('12.000 د.ك').waitFor()
-  assert.equal(await pageA.getByRole('button', { name: /ادفع|دفع/ }).count(), 0)
+  assert.equal(await pageA.getByRole('button', { name: 'ادفع الآن' }).count(), 1); await pageA.locator('[data-status="pending"]').first().waitFor()
 })
 await step('A: booking persists after refresh and has pending payment status', async () => {
   await pageA.goto(base + '#/bookings'); await pageA.reload(); await pageA.locator('.bookings li', { hasText: 'جلسة تدريب شخصي' }).first().waitFor()

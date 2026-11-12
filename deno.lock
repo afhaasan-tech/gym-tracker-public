@@ -1,0 +1,31 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@supabase/supabase-js@2": "2.119.0"
+  },
+  "jsr": {
+    "@supabase/supabase-js@2.119.0": {
+      "integrity": "1bb0b15e3953d973ddea394ad12a0759752965bf319367b18465572d10968707"
+    }
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@supabase/supabase-js@^2.119.0",
+        "npm:@types/node@^24.19.2",
+        "npm:@types/react-dom@^19.3.0",
+        "npm:@types/react@^19.3.0",
+        "npm:@vitejs/plugin-react@^6.1.2",
+        "npm:bcryptjs@^3.0.3",
+        "npm:lucide-react@0.468",
+        "npm:oxlint@^1.90.0",
+        "npm:playwright-core@^1.65.0",
+        "npm:react-dom@^19.3.1",
+        "npm:react@^19.3.1",
+        "npm:three@0.180",
+        "npm:typescript@~7.0.2",
+        "npm:vite@^8.3.6"
+      ]
+    }
+  }
+}

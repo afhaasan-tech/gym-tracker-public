@@ -10,3 +10,6 @@ P="psql -h /tmp -p $PORT -U postgres -d postgres -q -v ON_ERROR_STOP=1"
 $P -f "$HERE/tests/db/supabase-stubs.sql"
 for f in "$HERE"/supabase/migrations/*.sql; do $P -f "$f" 2>&1 | grep -v NOTICE || true; done
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/marketplace-rls.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- payments"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/payments.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
