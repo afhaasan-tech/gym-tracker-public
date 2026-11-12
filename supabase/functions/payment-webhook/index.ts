@@ -12,7 +12,11 @@ Deno.serve(async (req) => {
   if (!v.ok) { console.warn('webhook rejected:', v.reason); return json(401, { error: 'invalid_signature', reason: v.reason }) }
 
   let body: Record<string, unknown>
-  try { body = JSON.parse(raw) } catch { return json(400, { error: 'invalid_json' }) }
+  // UPayments posts application/x-www-form-urlencoded; JSON is accepted too. The HMAC above was checked over the exact raw body.
+  try { body = JSON.parse(raw) } catch {
+    const f = new URLSearchParams(raw); body = Object.fromEntries(f.entries())
+    if (!Object.keys(body).length) { console.warn('webhook body could not be parsed'); return json(400, { error: 'invalid_body' }) }
+  }
   const hintOrder = String(body.requested_order_id ?? body.order_id ?? '')
   const track = body.track_id ? String(body.track_id) : null
   const db = serviceClient()

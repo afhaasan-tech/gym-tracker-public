@@ -97,7 +97,7 @@ export const FAIL_RESULTS = ['NOT CAPTURED', 'CANCELED', 'CANCELLED', 'FAILED', 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-lang',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 export const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
