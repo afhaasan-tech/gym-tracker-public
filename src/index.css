@@ -212,6 +212,56 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .choice-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
 @media(min-width:900px){.choice-grid{grid-template-columns:repeat(3,1fr)}}
 
+/* ---------------------------------------------------------------- VORA AI screens (only rendered when VITE_VORA_AI=1) */
+.vora-stack{display:flex;flex-direction:column;gap:12px}
+.vora-row{display:flex;gap:8px;align-items:stretch}
+.vora-row textarea{flex:1;min-height:48px;resize:vertical}
+.vora-wide{width:100%}
+.vora-push{margin-inline-start:auto}
+.vora-error{color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger);border-radius:var(--radius-sm);padding:8px 12px;margin:0}
+.vora-center{display:flex;justify-content:center;align-items:flex-start;padding-top:6vh}
+.vora-gate{max-width:420px;width:100%;text-align:center;align-items:center;gap:14px;padding:28px 22px}
+.vora-gate h1{margin:0;font-size:var(--fs-xl,1.4rem)}
+.vora-gate p{margin:0}
+.vora-gate form{width:100%}
+.vora-gate-icon{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.vora-otp{width:100%;text-align:center;font-size:1.8rem;letter-spacing:.5em;font-variant-numeric:tabular-nums;padding:10px 0 10px .5em;border-radius:var(--radius-sm);border:1px solid var(--line-2);background:var(--bg-2);color:var(--text)}
+.vora-otp:focus{outline:2px solid var(--accent);outline-offset:1px}
+.vora-field{display:flex;flex-direction:column;gap:6px}
+.vora-label{font-size:var(--fs-sm,.9rem);color:var(--muted);font-weight:600}
+.vora-choices,.vora-chips{display:flex;flex-wrap:wrap;gap:8px}
+.vora-coaches{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.vora-coach{display:flex;gap:12px;align-items:center;text-align:start;padding:12px;border-radius:var(--radius);border:1px solid var(--line-2);background:var(--surface-2);color:var(--text)}
+.vora-coach span:last-child{display:flex;flex-direction:column;gap:2px}
+.vora-coach.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:var(--accent-soft)}
+.vora-avatar{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--accent-ink);background:linear-gradient(135deg,var(--accent-2),var(--accent))}
+.vora-avatar.lg{width:52px;height:52px;font-size:1.3rem}
+.vora-switch{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.vora-switch input{margin-top:4px;width:18px;height:18px;accent-color:var(--accent)}
+.vora-switch span{display:flex;flex-direction:column;gap:2px}
+.vora-balance{gap:8px}
+.vora-big{margin:0;font-size:2.6rem;font-weight:800;line-height:1.1;color:var(--text)}
+.vora-big small{font-size:1rem;font-weight:500;color:var(--muted)}
+.vora-ledger{list-style:none;margin:0;padding:0}
+.vora-ledger li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.vora-ledger li:first-child{border-top:0}
+.vora-ledger li span{display:flex;flex-direction:column;gap:2px}
+.vora-pos{color:var(--accent)} .vora-neg{color:var(--danger)}
+.vora-coach-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.vora-coach-head h1{margin:0}
+.vora-chat{min-height:260px;max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.vora-empty{display:flex;align-items:center;gap:6px;margin:auto}
+.vora-bubble{max-width:82%;padding:10px 14px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);align-self:flex-start;white-space:pre-wrap;line-height:1.6}
+.vora-bubble.me{align-self:flex-end;background:var(--accent-soft);border-color:rgba(34,211,182,.35)}
+.vora-mock{display:block;margin-top:4px;color:var(--muted);font-size:.75rem}
+.vora-bubble.typing{display:flex;gap:4px}
+.vora-bubble.typing span{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:vora-dot 1s infinite alternate}
+.vora-bubble.typing span:nth-child(2){animation-delay:.2s} .vora-bubble.typing span:nth-child(3){animation-delay:.4s}
+@keyframes vora-dot{to{opacity:.25;transform:translateY(-3px)}}
+@media (prefers-reduced-motion:reduce){.vora-bubble.typing span{animation:none}}
+.vora-confirm{border-color:var(--accent)} .vora-confirm p{display:flex;align-items:center;gap:8px;margin:0}
+.vora-composer{gap:10px;position:sticky;bottom:72px}
+@media (min-width:900px){.vora-composer{bottom:12px}}
 /* ---- payments: payment badges + off-white receipt card (charcoal text, refined turquoise accent) */
 .pay-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:var(--fs-xs);font-weight:600;border:1px solid transparent;white-space:nowrap}
 .pay-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
@@ -230,3 +280,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .pay-card .pay-pending{color:#4a5560;background:#e8e4da}.pay-card .pay-paid{color:#17653d;background:#d6efdf}.pay-card .pay-failed{color:#9b2f27;background:#f6dad7}
 .pay-card .pay-expired{color:#8a5313;background:#f8e6cc}.pay-card .pay-awaiting-payment{color:#1f56b5;background:#d9e6fb}
 button.soon,.primary:disabled{cursor:not-allowed}
+
+/* ---- home: phone-first call to action + 3 numbered steps */
+.home-cta .primary,.home-cta .outline{min-height:46px;padding:0 22px;font-size:var(--fs-lg)}
+@media(max-width:899px){.home-cta{flex-direction:column;align-items:stretch}}
+.home-steps{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:step;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.home-steps li{counter-increment:step;display:flex;flex-direction:column;gap:2px;padding:14px 16px;padding-inline-start:58px;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.home-steps li::before{content:counter(step);position:absolute;inset-inline-start:14px;top:14px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:var(--accent-ink);background:linear-gradient(135deg,var(--accent-2),var(--accent))}
+@media(max-width:899px){.home .choice-grid{grid-template-columns:1fr 1fr;gap:8px}.home .choice-grid .choice{padding:12px}.home .choice-grid .choice .small{display:none}}

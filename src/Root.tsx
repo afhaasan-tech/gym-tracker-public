@@ -12,10 +12,12 @@ import CoachArea, { ClaimCoachCard } from './coach'
 import OwnerArea from './owner'
 import { t, useLang } from './i18n'
 import PlansPage from './PlansPage'
+import { useVoraOn, DeviceGate, Onboarding, Wallet, CoachChat, VoraPlans, OwnerCommerce } from './vora'
+import { Bot, Wallet as WalletIcon, Shield as ShieldIcon, Tag as TagIcon, Dumbbell as DumbIcon, User as UserIcon, Salad as SaladIcon } from 'lucide-react'
 import PayReturn from './PayReturn'
 
 const MuscleExplorer = lazy(() => import('./MuscleExplorer'))
-const MEMBER_ONLY = ['/workouts', '/bookings', '/profile']
+const MEMBER_ONLY = ['/workouts', '/bookings', '/profile', '/ai-coach', '/wallet', '/onboarding', '/vora-admin', '/food/diary']
 
 export default function Root() {
   const lang = useLang()
@@ -28,6 +30,8 @@ function RootInner() {
   const [recovering, setRecovering] = useState(false)
   const { route, go } = useRoute()
   const roles = useRoles(session)
+  const voraFlag = useVoraOn()
+  const VORA_ON = voraFlag === true
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
@@ -43,16 +47,32 @@ function RootInner() {
     if (needsLogin) go(`/login?next=${encodeURIComponent(path)}`)
   }, [ready, session, path, needsLogin, query, go])
 
-  if (!ready) return null
+  if (!ready || voraFlag === null) return null
   if (session && recovering) return <SetNewPassword onDone={() => setRecovering(false)} />
   // Defense in depth: an address that was never verified never reaches any private page.
   if (session && !session.user.email_confirmed_at) return <VerifyEmail email={session.user.email ?? ''} onBack={() => supabase.auth.signOut()} />
   if (path === '/login' && !session) return <Auth />
 
-  const items = session ? memberNav(roles.coach?.status === 'active' || roles.coach?.status === 'pending_activation', Boolean(roles.admin)) : publicNav()
+  const voraItems = (): import('./Shell').NavItem[] => [
+    { to: '/ai-coach', label: 'AI Coach · المدرب الذكي', short: 'Coach', Icon: Bot, primary: true },
+    { to: '/workouts', label: t('تماريني'), short: t('تماريني'), Icon: DumbIcon, primary: true },
+    { to: '/food/diary', label: t('يومية الأكل'), short: t('الغذاء'), Icon: SaladIcon, primary: true },
+    { to: '/wallet', label: 'Wallet · المحفظة', short: 'Wallet', Icon: WalletIcon, primary: true },
+    { to: '/profile', label: t('حسابي'), short: t('حسابي'), Icon: UserIcon, primary: true },
+    { to: '/onboarding', label: 'Onboarding · الإعداد', short: 'Setup', Icon: UserIcon },
+    { to: '/plans', label: t('الباقات والأسعار'), short: t('الباقات'), Icon: TagIcon },
+    ...(roles.admin ? [{ to: '/vora-admin', label: 'Owner · المالك', short: 'Owner', Icon: ShieldIcon }] : []),
+  ]
+  const items = VORA_ON && session ? voraItems() : session ? memberNav(roles.coach?.status === 'active' || roles.coach?.status === 'pending_activation', Boolean(roles.admin)) : publicNav()
   const login = (next: string) => go(`/login?next=${encodeURIComponent(next)}`)
   let page: React.ReactNode
-  if (path === '/') page = <HomePage go={go} />
+  if (VORA_ON && session && path === '/ai-coach') page = <CoachChat />
+  else if (VORA_ON && session && path === '/wallet') page = <Wallet />
+  else if (VORA_ON && session && path === '/onboarding') page = <Onboarding session={session} go={go} />
+  else if (VORA_ON && session && path === '/vora-admin') page = <OwnerCommerce />
+  else if (VORA_ON && path === '/plans') page = session ? <VoraPlans /> : <VoraPlans />
+  else if (VORA_ON && session && path === '/') page = <CoachChat />
+  else if (path === '/') page = <HomePage go={go} />
   else if (path === '/search') page = <SearchPage q={query.get('q') ?? ''} go={go} />
   else if (path === '/sports') page = <SportsPage cat={query.get('cat')} go={go} />
   else if (seg[0] === 'sports' && seg[1]) page = <SportDetail slug={seg[1]} go={go} />
@@ -78,5 +98,7 @@ function RootInner() {
   else if (needsLogin) page = null
   else page = <main className="screen market"><div className="page-title"><h1>{t("الصفحة غير موجودة")}</h1></div><button className="primary" onClick={() => go('/')}>{t("الرئيسية")}</button></main>
 
-  return <Shell items={items} path={path} go={go} email={session?.user.email ?? undefined}>{page}</Shell>
+  const shell = <Shell items={items} path={path} go={go} email={session?.user.email ?? undefined}>{page}</Shell>
+  // VORA: every private screen requires a verified (trusted) device; the server enforces the same rule independently.
+  return VORA_ON && session ? <DeviceGate>{shell}</DeviceGate> : shell
 }

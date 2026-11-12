@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP off
 create table t_results(n serial, ok boolean, label text);
-create or replace function t_as(u uuid, aal text default 'aal2') returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims', json_build_object('sub', u, 'role', 'authenticated', 'aal', aal)::text, false); set role authenticated; end $$;
+create or replace function t_as(u uuid, aal text default 'aal2') returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims', json_build_object('session_id', u, 'sub', u, 'role', 'authenticated', 'aal', aal)::text, false); set role authenticated; end $$;
 create or replace function t_anon() returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims', '', false); set role anon; end $$;
 create or replace function t_su() returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims', '', false); end $$;
 create or replace function t_err(q text, label text) returns void language plpgsql as $$
@@ -17,6 +17,9 @@ create or replace function t_affected(q text, expected int, label text) returns 
 declare n int; begin begin execute q; get diagnostics n = row_count; insert into t_results(ok,label) values (n=expected, label||' [affected '||n||', want '||expected||']');
   exception when others then insert into t_results(ok,label) values (false, label||' (error: '||left(sqlerrm,90)||')'); end; end $$;
 
+do $$ declare r record; begin
+  for r in select p.oid::regprocedure x from pg_proc p where p.proname like 't\_%' and p.pronamespace = 'public'::regnamespace loop execute 'grant execute on function ' || r.x || ' to public'; end loop;
+end $$;
 -- actors (ids spell the role): S super admin, E emergency admin, C1/C2 invited coaches, M member, X member, U unverified e-mail
 insert into auth.users(id,email,email_confirmed_at) values
  ('a0000000-0000-4000-8000-00000000000a','super@t.test',now()),

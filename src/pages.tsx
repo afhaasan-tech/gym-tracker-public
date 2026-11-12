@@ -36,18 +36,24 @@ const choices = (): { label: string; to: string; hint: string; Icon: LucideIcon 
 ]
 export function HomePage({ go }: { go: Go }) {
   const sports = useSports(), coaches = useCoaches(), services = useServices()
-  const [q, setQ] = useState('')
   const cats = useMemo(() => [...new Set(sports.data.map((s) => s.category))].filter((c) => c !== 'nutrition'), [sports.data])
   return (
     <main className="screen market home">
       <section className="home-hero">
-        <span className="eyebrow">{t("منصة رياضية كويتية")}</span>
-        <h1>{t("اكتشف رياضتك والمدرب المناسب لك")}</h1>
-        <p>{t("تصفّح الرياضات والمدربين والتمارين المجانية قبل ما تسوي حساب. الحجوزات الحالية تجريبية وما فيها دفع حقيقي.")}</p>
-        <form className="home-search" role="search" onSubmit={(e) => { e.preventDefault(); go(`/search?q=${encodeURIComponent(q.trim())}`) }}>
-          <input type="search" aria-label={t("ابحث عن رياضة أو مدرب أو خدمة")} placeholder={t("ابحث عن رياضة أو مدرب أو خدمة…")} value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="primary" type="submit">{t("ابحث")}</button>
-        </form>
+        <span className="eyebrow">{t("ڤورا · من الكويت لك")}</span>
+        <h1>{t("مدربك الشخصي… في جيبك")}</h1>
+        <p>{t("تمارين وأكل ومتابعة بخطوات بسيطة، بالعربي وعلى كيفك.")}</p>
+        <div className="row-actions home-cta">
+          <button className="primary" type="button" onClick={() => go('/login')}>{t("ابدأ مجاناً")}</button>
+          <button className="outline" type="button" onClick={() => go('/self')}>{t("تصفّح بدون حساب")}</button>
+        </div>
+      </section>
+      <section aria-label={t("كيف تبدأ")}><h2>{t("كيف تبدأ")}</h2>
+        <ol className="home-steps">
+          <li><b>{t("سوّ حسابك")}</b><span className="muted small">{t("بالإيميل، وياخذ أقل من دقيقة.")}</span></li>
+          <li><b>{t("اختر هدفك")}</b><span className="muted small">{t("نزّل وزن، عضل، أو لياقة عامة.")}</span></li>
+          <li><b>{t("تمرّن وتابع تقدمك")}</b><span className="muted small">{t("سجّل تمارينك وأكلك وشوف تطورك أسبوع بأسبوع.")}</span></li>
+        </ol>
       </section>
       <section aria-label={t("ابدأ من هنا")}><h2>{t("وش تبي اليوم؟")}</h2>
         <div className="choice-grid">{choices().map((c) => <button key={c.to} type="button" className="choice card" onClick={() => go(c.to)}><c.Icon size={22} aria-hidden="true" className="choice-icon" /><strong>{c.label}</strong><span className="muted small">{c.hint}</span></button>)}</div>
