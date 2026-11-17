@@ -10,7 +10,6 @@ no table is dropped, no customer row is deleted, no balance or ledger row is cha
 | `20261120_purchases.sql` | `coin_packs`, `purchase_orders`, `purchase_events`, purchase functions (server-side price snapshot, exactly-once fulfilment) | None. New tables only. |
 | `20261121_exercise_library.sql` | `muscles`, `exercise_library`, subscriber-only library RPCs, plans `monthly` / `yearly` (provisional KWD 7 / 70), `plans.period_days`, approved provisional coin packs (0.990 / 2.490 / 4.990) | The four old plans and the three first-draft packs are **disabled, not deleted**. A member on an old plan keeps it until its period ends; it cannot be renewed. |
 | `20261122_exercise_library_seed.sql` | Content: 9 muscles, 61 exercises | Idempotent upsert of content rows only. |
-| `20261123_library_verification.sql` | `exercise_library.source_checked` (was this row compared with an opened reference page) | New column, default false. |
 | `20261124_included_usage.sql` | Subscribers' trainer use is included up to configurable daily caps (`plans.ai_daily_requests` 40, `ai_daily_media` 10, provisional); `monthly_credits` of monthly / yearly set to null so **no coins are granted automatically**; Gemini route model updated | No ledger row is written or removed. The old `vip` plan (which never had a coin allocation) also becomes included-usage. |
 
 ## Behaviour that changes for members when these go live
