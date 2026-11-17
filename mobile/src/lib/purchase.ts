@@ -17,8 +17,10 @@ const web = Platform.OS === 'web' && typeof window !== 'undefined'
 
 /** Starts a checkout. On the web the page leaves for the hosted checkout; on native it opens in the browser. */
 export async function startCheckout(kind: OrderKind, itemKey: string): Promise<{ orderId?: string; error?: string }> {
-  const returnUrl = web ? window.location.origin + window.location.pathname + '#/store' : Linking.createURL('/store')
-  const r = await fn<{ order_id: string; checkout_url: string }>('initiate-purchase', { kind, item_key: itemKey, idempotency_key: Crypto.randomUUID(), return_url: returnUrl })
+  // Native: only the app's own vora:// link is accepted by the server (Expo Go's exp:// is not), otherwise the server default is used.
+  const native = Linking.createURL('/store')
+  const returnUrl = web ? window.location.origin + window.location.pathname + '#/store' : native.startsWith('vora://') ? native : undefined
+  const r = await fn<{ order_id: string; checkout_url: string }>('initiate-purchase', { kind, item_key: itemKey, idempotency_key: Crypto.randomUUID(), ...(returnUrl ? { return_url: returnUrl } : {}) })
   if (r.error || !r.data?.checkout_url) return { error: r.error ?? 'unavailable' }
   if (web) { try { window.sessionStorage.setItem(KEY, r.data.order_id) } catch { /* storage blocked */ } window.location.assign(r.data.checkout_url) }
   else await Linking.openURL(r.data.checkout_url)
@@ -31,6 +33,8 @@ export function takePendingOrder(): string | null {
 }
 /** Server-side verification with the payment provider. */
 export async function orderStatus(orderId: string): Promise<OrderStatus | null> {
-  const r = await fn<{ status: OrderStatus }>('purchase-status', { order_id: orderId })
-  return r.data?.status ?? null
+  const r = await fn<{ status: OrderStatus; fulfilled: boolean }>('purchase-status', { order_id: orderId })
+  if (!r.data) return null
+  // paid but not yet activated counts as still pending for the member
+  return r.data.status === 'paid' && !r.data.fulfilled ? 'pending' : r.data.status
 }

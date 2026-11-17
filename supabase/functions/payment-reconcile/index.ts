@@ -1,9 +1,10 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { corsHeaders, json, resolveAttempt, serviceClient } from './upayments.ts'
+import { sweepPurchases } from './purchases.ts'
 
 // Safe to call by anyone: outcomes come ONLY from the provider's own answer (or from time passing on an already-overdue checkout).
-//  { sweep: true }        scheduler: resolves overdue open checkouts. Throttled inside the database (payment_sweep_gate) so
+//  { sweep: true }        scheduler: resolves overdue open checkouts (bookings and purchase orders). Throttled inside the database (payment_sweep_gate) so
 //                         spamming it cannot exhaust the provider's rate limit.
 //  { booking_id } + JWT   a signed-in member refreshes THEIR OWN booking after returning from checkout (never expires early).
 Deno.serve(async (req) => {
@@ -19,6 +20,10 @@ Deno.serve(async (req) => {
     if (error) return json(500, { error: 'server_error' })
     const outcomes: Record<string, string> = {}
     for (const a of list ?? []) outcomes[a.id] = await resolveAttempt(db, a, 'reconcile', true)
+    // purchase orders (coins packs / subscription periods) are swept by the same throttled run; the booking part above is unchanged
+    let purchases: Record<string, string> = {}
+    try { purchases = await sweepPurchases(db) } catch (e) { console.error('purchase sweep failed', (e as Error).message) }
+    if (Object.keys(purchases).length) return json(200, { processed: Object.keys(outcomes).length, outcomes, purchases })
     return json(200, { processed: Object.keys(outcomes).length, outcomes })
   }
 

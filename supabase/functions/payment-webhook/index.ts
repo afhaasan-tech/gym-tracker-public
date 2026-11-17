@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { compact, expand, FAIL_RESULTS, fetchStatus, json, notificationUrl, serviceClient, verifyWebhook } from './upayments.ts'
+import { lookupPurchase, webhookPurchase } from './purchases.ts'
 
 // UPayments -> VORA. Deployed with verify_jwt = false (the provider has no Supabase JWT); authenticity comes from the HMAC signature.
 // The webhook body is only a HINT: the outcome that is applied always comes from a fresh server-to-server lookup.
@@ -26,7 +27,12 @@ Deno.serve(async (req) => {
   const attemptId = expand(hintOrder)
   if (attemptId) attempt = (await db.from('payment_attempts').select('*').eq('id', attemptId).maybeSingle()).data
   if (!attempt && track) attempt = (await db.from('payment_attempts').select('*').eq('provider_track_id', track).maybeSingle()).data
-  if (!attempt) { console.warn('webhook for unknown attempt', hintOrder, track); return json(404, { error: 'unknown_attempt' }) }
+  if (!attempt) {
+    // not a booking payment: the reference may be a purchase order (coins pack / subscription period). Same rule: the body is only a hint.
+    const order = await lookupPurchase(db, attemptId || null, track)
+    if (order) { const r = await webhookPurchase(db, order, body, track); return json(r.status, r.body) }
+    console.warn('webhook for unknown attempt', hintOrder, track); return json(404, { error: 'unknown_attempt' })
+  }
 
   let verified
   try { verified = await fetchStatus({ trackId: track, sessionId: track ? null : attempt.provider_session_id }) }

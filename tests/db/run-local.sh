@@ -34,3 +34,8 @@ echo "--- least privilege"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/least-privilege.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
 echo "--- payments"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/payments.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- purchases"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/purchases.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- purchases concurrency"
+PORT=$PORT bash "$HERE/tests/db/purchases-concurrency.sh"
