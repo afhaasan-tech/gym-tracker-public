@@ -21,7 +21,7 @@ declare n int; begin begin execute q; get diagnostics n = row_count; insert into
 
 drop table if exists t_ids; create table t_ids(k text primary key, v text); grant all on t_ids to public;
 create or replace function t_user(u uuid, verified boolean) returns void language plpgsql as $$ begin
-  insert into auth.users(id,email,email_confirmed_at) values (u, u::text||'@credits.test', case when verified then now() end); insert into user_session_state(user_id, active_session_id) values (u, u); end $$;
+  insert into auth.users(id,email,email_confirmed_at) values (u, u::text||'@credits.test', case when verified then now() end); insert into user_active_sessions(user_id, session_id) values (u, u); end $$;
 create or replace function t_bal(u uuid) returns jsonb language plpgsql as $$ declare r jsonb; begin
   reset role; perform set_config('request.jwt.claims', json_build_object('session_id', u, 'sub', u, 'role','authenticated')::text, false); set role authenticated; r := public.my_credit_balance(); reset role; return r; end $$;
 create or replace function t_srv() returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims','',false); set role service_role; end $$;
@@ -113,7 +113,7 @@ select t_srv();
 reset role; select t_as('c0000000-0000-4000-8000-000000000001');
 select t_count($$select 1 from credit_ledger$$,4,'member reads only own ledger rows (grant, 2 holds, 1 release)');
 select t_count($$select 1 from credit_reservations$$,2,'member reads only own reservations');
-select t_count($$select 1 from ai_operations$$,6,'member reads operation prices');
+select t_count($$select 1 from ai_operations$$,10,'member reads operation prices (incl. the four trainer operations)');
 select t_err($$insert into credit_ledger(user_id,source,entry_type,amount) values (auth.uid(),'purchased','grant',999999)$$,'member cannot insert credits');
 select t_err($$update credit_ledger set amount=999999$$,'member cannot update the ledger');
 select t_err($$delete from credit_ledger$$,'member cannot delete ledger rows');

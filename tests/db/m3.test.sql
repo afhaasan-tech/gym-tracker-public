@@ -34,7 +34,7 @@ end $$;
 select t_su(); select t_u('c2000000-0000-4000-8000-000000000001'), t_u('c2000000-0000-4000-8000-000000000002'), t_u('c2000000-0000-4000-8000-000000000003');
 drop table if exists t_ids; create table t_ids(k text primary key, v text); grant all on t_ids to public;
 
--- ================= A. trusted devices, 6-digit challenge, single active session
+-- ================= A. trusted devices, 6-digit challenge, one active session per device (two devices: two-devices-trainer.test.sql)
 select t_srv();
 select t_count($$select 1 where device_status('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), gen_random_uuid()) = 'challenge_required'$$,1,'unknown device => challenge required');
 select t_err($$select device_challenge_create('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), '12345')$$,'code must be exactly 6 digits');
@@ -53,11 +53,11 @@ select t_count($$select 1 where is_trusted_session()$$,1,'the verified session i
 select t_sess('c2000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-0000000000ff');
 select t_count($$select 1 where is_trusted_session()$$,0,'any other session of the same user is NOT trusted');
 select t_srv();
-select t_count($$select 1 where device_status('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), 'c2000000-0000-4000-8000-0000000000ee') = 'trusted'$$,1,'known device => trusted, new session becomes the only active one');
+select t_count($$select 1 where device_status('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), 'c2000000-0000-4000-8000-0000000000ee') = 'trusted'$$,1,'known device => trusted, new session replaces that device''s previous one');
 select t_sess('c2000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-0000000000ee');
 select t_count($$select 1 where is_trusted_session()$$,1,'the new session is trusted');
 select t_sess('c2000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001');
-select t_count($$select 1 where is_trusted_session()$$,0,'the OLD session lost trust immediately (single active session)');
+select t_count($$select 1 where is_trusted_session()$$,0,'the OLD session of the same device lost trust immediately (one session per device)');
 select t_sess('c2000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-0000000000ee');
 select t_count($$select 1 from trusted_devices where label is null or label='iPhone Safari'$$,1,'member sees own device list');
 select t_err($$select device_status(auth.uid(), repeat('a',64), gen_random_uuid())$$,'member cannot call device_status');
@@ -140,7 +140,7 @@ select t_ok($$select owner_set_ai_budget(true, 5000000, 50000)$$,'budget gate: l
 select t_ok($$select owner_set_flag('live_ai_enabled', true)$$,'live_ai flag now allowed (high risk, step-up ok)');
 select t_ok($$select owner_set_flag('ai_coach_enabled', true)$$,'ordinary flag');
 select t_ok($$select owner_upsert_plan('vip','VIP','VIP',41.5,null,'{"daily_quick":250}'::jsonb,true,true,4)$$,'plan price and fair-use limits are configurable');
-select t_count($$select 1 where (public_plans() -> 3 ->> 'provisional')::boolean$$,1,'plans remain flagged provisional');
+select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e->>'key' = 'vip' and (e->>'provisional')::boolean$$,1,'plans remain flagged provisional');
 select t_ok($$select owner_set_ai_budget(false, 0, 0)$$,'budget gate switched off again');
 select t_ok($$select owner_set_flag('live_ai_enabled', false)$$,'live flag off');
 select t_count($$select 1 where (owner_ai_usage_summary(30) ? 'provider_cost_usd') and not (owner_ai_usage_summary(30)::text like '%request%')$$,1,'usage summary is aggregate only (no message content)');
@@ -173,4 +173,6 @@ select t_count($$select 1 from credit_ledger$$,0,'untrusted session sees no ledg
 select t_err($$select my_credit_balance()$$,'untrusted session cannot read the balance');
 select t_count($$select 1 from ai_jobs$$,0,'untrusted session sees no AI conversations');
 select t_su();
+-- leave the catalogue as the migrations define it (this suite re-enabled the old vip plan through owner_upsert_plan)
+select t_su(); update plans set enabled = false where key in ('essential','pro','elite','vip');
 select 'PASS '||label from t_results where ok union all select 'FAIL '||label from t_results where not ok union all select 'TOTAL pass='||count(*) filter (where ok)||' fail='||count(*) filter (where not ok) from t_results;

@@ -9,6 +9,11 @@ su postgres -c "$B/initdb -D $D/data -A trust >/dev/null && $B/pg_ctl -D $D/data
 P="psql -h /tmp -p $PORT -U postgres -d postgres -q -v ON_ERROR_STOP=1"
 $P -f "$HERE/tests/db/supabase-stubs.sql"
 for f in "$HERE"/supabase/migrations/*.sql; do $P -f "$f" 2>&1 | grep -v NOTICE || true; done
+# read-only, runs first: the catalogue (plans, coin packs) and the library grants exactly as the migrations leave them
+echo "--- catalogue as migrated"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/catalogue-as-migrated.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
+
+echo "--- marketplace rls"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/marketplace-rls.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
 
 echo "--- credits"
@@ -24,6 +29,9 @@ PORT=$PORT bash "$HERE/tests/db/ai-budget-concurrency.sh"
 echo "--- m3"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/m3.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
 
+echo "--- two devices + trainer"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/two-devices-trainer.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
 echo "--- hardening"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/hardening.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
 
@@ -31,3 +39,16 @@ echo "--- least privilege"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/least-privilege.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
 echo "--- payments"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/payments.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- purchases"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/purchases.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- purchases concurrency"
+PORT=$PORT bash "$HERE/tests/db/purchases-concurrency.sh"
+
+echo "--- exercise library + monthly/yearly plans"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/exercise-library.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- included usage (no automatic coins, daily caps)"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/included-usage.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- included usage concurrency"
+PORT=$PORT bash "$HERE/tests/db/included-usage-concurrency.sh"

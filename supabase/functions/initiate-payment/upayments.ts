@@ -25,13 +25,15 @@ export function safeEqual(a: string, b: string): boolean {
 
 async function call(method: 'GET' | 'POST', path: string, body?: string): Promise<{ status: number; json: any }> {
   const key = env('UPAYMENTS_API_KEY'), secret = env('UPAYMENTS_HMAC_SECRET')
-  if (!key || !secret) throw new Error('payment gateway is not configured')
+  if (!key) throw new Error('payment gateway is not configured')
   const ts = Math.floor(Date.now() / 1000).toString()
   const sigPath = path.split('?')[0].startsWith('get-payment-status') ? path : path   // documented: relative path after /api/v1/
-  const signature = await hmacB64(secret, ts + method + sigPath + (body ?? ''))
+  const signature = !secret ? '' : await hmacB64(secret, ts + method + sigPath + (body ?? ''))
   const res = await fetch(apiBase() + path, {
     method, body,
-    headers: { Authorization: 'Bearer ' + key, Accept: 'application/json', 'Content-Type': 'application/json', 'X-Timestamp': ts, 'X-Signature': signature },
+    // Verified against the sandbox: the API key alone authenticates a request; a signature header is checked ONLY when it is sent,
+    // against the HMAC secret of the same merchant account. So requests are signed when that secret is configured, and never with a wrong one.
+    headers: { Authorization: 'Bearer ' + key, Accept: 'application/json', 'Content-Type': 'application/json', ...(secret ? { 'X-Timestamp': ts, 'X-Signature': signature } : {}) },
     signal: AbortSignal.timeout(15000),
   })
   const text = await res.text()

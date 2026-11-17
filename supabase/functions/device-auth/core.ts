@@ -1,6 +1,8 @@
 // Trusted-device flow orchestration. Pure (all I/O injected) so it can be tested without a network.
 // Security rules: the 6-digit code is generated here with a CSPRNG, stored only as a keyed hash in the database, sent ONLY by e-mail and
 // never returned to the caller; every failure answer is generic; only a trusted session may list/revoke devices.
+// Two devices: an account may be active on TWO trusted devices at once. Trust is decided purely by the database
+// (user_active_sessions, see 20261119_two_devices_trainer.sql), so this function never signs other sessions out.
 export interface Deps {
   hash(secret: string): Promise<string>                                         // sha256 hex of the client-held device secret
   randomCode(): string                                                          // 6 digits, uniform
@@ -12,7 +14,6 @@ export interface Deps {
   isTrusted(): Promise<boolean>
   rateLimit(bucket: string, limit: number, windowSeconds: number): Promise<boolean>   // true = allowed
   sendMail(to: string, subject: string, text: string): Promise<void>
-  revokeOtherSessions(): Promise<void>
 }
 export type Ctx = { userId: string; email: string; sessionId: string }
 export type Out = { status: number; body: Record<string, unknown> }
@@ -35,7 +36,6 @@ export async function handleDevice(d: Deps, c: Ctx, body: Record<string, unknown
 
   if (action === 'status') {
     const s = await d.deviceStatus(c.userId, deviceHash, c.sessionId)
-    if (s === 'trusted') await d.revokeOtherSessions()                       // single active session
     return { status: 200, body: { state: s } }
   }
   if (action === 'send_code') {
@@ -55,7 +55,6 @@ export async function handleDevice(d: Deps, c: Ctx, body: Record<string, unknown
     const label = typeof body?.label === 'string' ? body.label.slice(0, 60) : ''
     const ok = await d.verifyChallenge(c.userId, deviceHash, code, c.sessionId, label)
     if (!ok) return { status: 401, body: { error: 'invalid_or_expired_code' } }  // same answer for wrong / expired / used / burned
-    await d.revokeOtherSessions()
     return { status: 200, body: { state: 'trusted' } }
   }
   if (action === 'list_devices' || action === 'revoke_device') {
