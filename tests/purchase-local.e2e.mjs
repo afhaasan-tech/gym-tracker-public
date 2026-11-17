@@ -41,13 +41,15 @@ if (process.env.PAY === '1') {
   await step('P04', 'pay the hosted sandbox page with the KNET test card', async () => {
     await page.goto(checkout, { waitUntil: 'domcontentloaded', timeout: 60000 }); await page.waitForTimeout(5000)
     if (process.env.SHOTDIR) await page.screenshot({ path: process.env.SHOTDIR + '/pay-1.png' })
-    const knet = page.getByText(/K-?NET|كي ?نت/i).first(); if (await knet.count()) await knet.click().catch(() => {})
-    const go = page.getByRole('button', { name: /pay|ادفع|proceed|continue|متابعة/i }).first(); if (await go.count()) await go.click().catch(() => {})
-    await page.waitForSelector('select[name="bank"], #bank', { timeout: 45000 })
-    await page.selectOption('select[name="bank"], #bank', { index: 1 }); await page.waitForTimeout(800)
-    await page.fill('input[name="debitNumber"], #debitNumber', '0000000001'); await page.selectOption('select[name="expmnth"], #debitMonthSelect', '9').catch(() => page.selectOption('#debitMonthSelect', '09')); await page.selectOption('select[name="expyear"], #debitYearSelect', '2030'); await page.fill('input[name="cardPin"], #cardPin', '1234')
+    await page.getByText('كي نت', { exact: true }).first().click().catch(async () => { await page.getByText(/^K-?NET$/i).first().click() })
+    await page.waitForSelector('#debitNumber', { timeout: 45000 })
+    // documented KNET sandbox test card; the expiry decides the outcome (EXPIRY=09/30 approves, any other declines)
+    await page.fill('#debitNumber', '8888880000000001'); await page.click('#expiryDateInput'); await page.keyboard.type((process.env.EXPIRY || '09/30').replace('/', ''), { delay: 60 }); await page.fill('#cardPin', '1234')
     if (process.env.SHOTDIR) await page.screenshot({ path: process.env.SHOTDIR + '/pay-2.png' })
-    await page.click('#proceed'); await page.waitForSelector('#proceedConfirm', { timeout: 30000 }); await page.click('#proceedConfirm'); await page.waitForTimeout(12000)
+    await page.click('#proceed'); await page.waitForTimeout(6000); if (process.env.SHOTDIR) await page.screenshot({ path: process.env.SHOTDIR + '/pay-2b.png' })
+    // the bank test page sometimes ignores the first click on Submit
+    for (let i = 0; i < 3 && !(await page.locator('#proceedConfirm').isVisible().catch(() => false)); i++) { await page.click('#proceed').catch(() => {}); await page.waitForTimeout(5000) }
+    await page.waitForSelector('#proceedConfirm', { state: 'visible', timeout: 30000 }); await page.click('#proceedConfirm'); await page.waitForTimeout(12000)
     if (process.env.SHOTDIR) await page.screenshot({ path: process.env.SHOTDIR + '/pay-3.png' })
   })
   await step('P05', 'the SERVER verifies the payment with the provider: order paid and fulfilled', async () => {

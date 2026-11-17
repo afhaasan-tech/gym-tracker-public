@@ -134,14 +134,16 @@ export function validateOutput(raw: string): { ok: true; data: TrainerOutput } |
   return r.success ? { ok: true, data: r.data } : { ok: false, reason: 'schema:' + (r.error.issues[0]?.path.join('.') ?? '') }
 }
 
-// ---------------------------------------------------------------- the same shape for Gemini's responseSchema (OpenAPI subset)
-const S = { type: 'STRING' }, I = { type: 'INTEGER' }, N = { type: 'NUMBER' }, B = { type: 'BOOLEAN' }
-const NS = { type: 'STRING', nullable: true }
-const obj = (properties: Record<string, unknown>, required: string[] = Object.keys(properties), nullable = false) => ({ type: 'OBJECT', properties, required, ...(nullable ? { nullable: true } : {}) })
-const arr = (items: unknown) => ({ type: 'ARRAY', items })
+// ---------------------------------------------------------------- the same shape as a JSON Schema (Gemini generationConfig.responseJsonSchema)
+// Standard JSON Schema: lowercase types, a nullable value is a type list that includes "null". No size limits here (they are applied
+// by the zod schemas above), which also keeps the schema small for the provider's schema compiler.
+const S = { type: 'string' }, I = { type: 'integer' }, N = { type: 'number' }, B = { type: 'boolean' }
+const NS = { type: ['string', 'null'] }
+const obj = (properties: Record<string, unknown>, required: string[] = Object.keys(properties), nullable = false) => ({ type: nullable ? ['object', 'null'] : 'object', properties, required })
+const arr = (items: unknown) => ({ type: 'array', items })
 const G_MACROS = { calories: N, protein_g: N, carbs_g: N, fat_g: N }
 const G_EXERCISE = { exercise_id: S, sets: I, reps: S, rest_seconds: I, note: S }
-export const GEMINI_RESPONSE_SCHEMA = obj({
+export const GEMINI_RESPONSE_JSON_SCHEMA = obj({
   chat_reply: S, voice_script: S, off_topic: B,
   safety: obj({ injury_reported: B, injured_area: NS, refused: B, refusal_reason: NS, urgent: B }),
   workout_card: obj(G_EXERCISE, ['exercise_id'], true),
@@ -150,7 +152,7 @@ export const GEMINI_RESPONSE_SCHEMA = obj({
     meal_name_ar: S, meal_name_en: S, servings: I, prep_minutes: I, cook_minutes: I, localized_for: NS,
     macros_per_serving: obj(G_MACROS), macros_with_substitutes: obj(G_MACROS, Object.keys(G_MACROS), true),
     ingredients: arr(obj({ name_ar: S, grams: N, household_unit: S, substitute: obj({ name_ar: S, store_hint: S, grams: N, household_unit: S, macros_delta_per_serving: obj(G_MACROS) }, ['name_ar', 'grams', 'macros_delta_per_serving'], true) }, ['name_ar', 'grams', 'household_unit'])),
-    steps: arr(obj({ text_ar: S, timer_seconds: { type: 'INTEGER', nullable: true } }, ['text_ar'])),
+    steps: arr(obj({ text_ar: S, timer_seconds: { type: ['integer', 'null'] } }, ['text_ar'])),
   }, ['meal_name_ar', 'meal_name_en', 'servings', 'prep_minutes', 'cook_minutes', 'macros_per_serving', 'ingredients', 'steps'], true),
-  withheld: arr({ type: 'STRING', enum: [...LOCKABLE] }),
+  withheld: arr({ type: 'string', enum: [...LOCKABLE] }),
 }, ['chat_reply', 'voice_script', 'off_topic', 'safety'])

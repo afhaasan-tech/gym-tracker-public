@@ -1,14 +1,17 @@
 // Orchestration for the ONE VORA AI Personal Trainer. Pure: every side effect is injected, so it is unit-testable without a network
 // or a database. Order: trusted session -> validation + sanitising -> deterministic medical refusal -> ACCESS (subscriber | trial | none)
-// -> subscriber: exact-cost confirmation, idempotent replay, atomic credit reservation, charge only after a VALID answer, release on
-//    every failure / trial: no credits, one server-counted message of the single trial conversation, refunded on failure
+// -> paying with VORA Coins (the coins tier, and subscribers on a plan with a coin allocation): exact-cost confirmation, idempotent
+//    replay, atomic credit reservation, charge only after a VALID answer, release on every failure
+//    / subscriber with INCLUDED usage (billing 'included'): no confirmation, no credits; one request (and one media unit when a file is
+//    attached) of today's plan allowance, taken atomically in the database, given back on every failure; 429 when the day is used up
+//    / trial: no credits, one server-counted message of the single trial conversation, refunded on failure
 // -> subscriber: the server picks the candidate exercises from the VORA library (the model may only point at one of them by id)
 // -> provider (live only behind the DB budget gate) -> schema validation -> server-side entitlements (never trust the model):
 //    subscriber cards / plans are BUILT FROM THE LIBRARY RECORD, an unknown id is dropped; trial and coins get a short general answer,
 //    no card, no plan, no meal, and an "upgrade" hint the app words itself.
 // Message and media contents are never logged here; media is never stored.
 import { buildCard, buildPlan, inferMuscles, type LibraryExercise, parseCandidates, shorten, wantsPlan } from './library.ts'
-import { type Environment, type Lang, type MediaKind, type Persona, systemPrompt, type Tone, type Turn, userEnvelope } from './prompts.ts'
+import { type Environment, joinSystem, type Lang, type MediaKind, type Persona, systemPromptParts, type Tone, type Turn, userEnvelope } from './prompts.ts'
 import { canHandle, costMicro, estimateMicro, GEMINI_MEDIA_MODEL, type Media, type Provider } from './providers.ts'
 import { clean, detectInjection, MEDICAL_REFUSAL, medicalCheck, URGENT_REPLY, urgentCheck } from './sanitize.ts'
 import { type Lockable, validateOutput } from './schemas.ts'
@@ -16,8 +19,10 @@ import { type Lockable, validateOutput } from './schemas.ts'
 export type Operation = { key: string; credits: number; enabled: boolean }
 export type Route = { provider: string; model: string; max_output_tokens: number; fallback_provider?: string | null; fallback_model?: string | null }
 export type Job = { id?: string; status: 'running' | 'done' | 'failed'; response_text?: string | null; operation_key: string }
-export type Access = { tier: 'subscriber' | 'coins' | 'trial' | 'none'; nutrition: boolean; plan_key?: string | null; trial?: { remaining?: number } | null }
+export type Access = { tier: 'subscriber' | 'coins' | 'trial' | 'none'; nutrition: boolean; plan_key?: string | null; trial?: { remaining?: number } | null; billing?: 'included' | 'coins' | null; daily_requests?: number | null; daily_media?: number | null }
 export type TrialResult = { allowed: boolean; remaining?: number; reason?: string }
+export type UsageResult = { allowed: boolean; remaining_requests?: number; remaining_media?: number; reason?: string }
+export type RemainingToday = { requests: number; media: number } | null
 export class CreditError extends Error { constructor(public code: string) { super(code) } }
 
 export interface Deps {
@@ -39,6 +44,9 @@ export interface Deps {
   access(userId: string): Promise<Access>     // trainer_access(); throws when the database cannot answer
   trialConsume(userId: string, conversationId: string): Promise<TrialResult>
   trialRefund(userId: string): Promise<void>
+  /** trainer_usage_consume(): one request (+ one media unit) of today's INCLUDED plan usage, atomic in the database. */
+  usageConsume(userId: string, media: boolean): Promise<UsageResult>
+  usageRefund(userId: string, media: boolean): Promise<void>
   /** library_candidates() with the service role: the compact records of the exercises the model may choose from (raw; validated in library.ts). muscles [] = a balanced set. */
   libraryCandidates(muscles: string[], environment: Environment, limit: number): Promise<unknown>
   timeoutMs?: number
@@ -153,11 +161,16 @@ const NO_LIBRARY: Record<Lang, string> = {
   en: 'I could not find a matching exercise in the VORA library for this right now, so I will not suggest one from outside it. Tell me which muscle you want and whether you train at the gym or at home, and I will look in the library.',
 }
 /** Trial and coins answers are short: the provider is capped here and the reply is cut at a sentence end if a model overruns. */
-export const SHORT_MAX_OUTPUT_TOKENS = 400      // one or two sentences in Arabic + the spoken version + the JSON around them, with headroom
+// The cap sent to the provider. The current models think before they answer and that thinking counts toward the cap (Claude Haiku /
+// Sonnet 5.5: adaptive thinking is on by default; Gemini: thought tokens are part of maxOutputTokens), so the cap is NOT the size of
+// the visible answer: it leaves room for a little reasoning plus one or two sentences, the spoken version and the JSON around them.
+// The visible reply is kept short by the prompt and by SHORT_REPLY_MAX_CHARS, not by starving the model.
+export const SHORT_MAX_OUTPUT_TOKENS = 1024
 export const SHORT_REPLY_MAX_CHARS = 320
 export type Upgrade = { reason: Lockable | 'personalised' } | null
 const NO_SAFETY = { injury_reported: false, injured_area: null, refused: false, refusal_reason: null, urgent: false }
-const accessOut = (a: Access | null, trialRemaining: number | null) => (a ? { tier: a.tier, nutrition: a.tier === 'subscriber' && a.nutrition === true, trial_remaining: trialRemaining } : null)
+const billingOf = (a: Access): 'included' | 'coins' | null => (a.tier === 'subscriber' ? (a.billing === 'included' ? 'included' : 'coins') : a.tier === 'coins' ? 'coins' : null)
+const accessOut = (a: Access | null, trialRemaining: number | null, remainingToday: RemainingToday = null) => (a ? { tier: a.tier, nutrition: a.tier === 'subscriber' && a.nutrition === true, trial_remaining: trialRemaining, billing: billingOf(a), remaining_today: remainingToday } : null)
 const trialLeft = (a: Access | null) => (a && a.tier === 'trial' && typeof a.trial?.remaining === 'number' ? a.trial.remaining : null)
 
 /** Fixed answer written by the server (no provider, nothing charged, no trial message used). */
@@ -201,8 +214,12 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   }
   if (access.tier !== 'subscriber' && access.tier !== 'trial' && access.tier !== 'coins') return noAccess('subscription_required')
   const tier = access.tier
-  // subscribers and pay-as-you-go members pay VORA Coins per request; only the subscription unlocks the library, plans and nutrition
-  const pays = tier !== 'trial', sub = tier === 'subscriber'
+  // Only the subscription unlocks the library, plans and nutrition. Who pays how:
+  //   included = a subscriber whose plan includes AI use (a daily allowance, no coins); pays = VORA Coins per request (the coins
+  //   tier and subscribers on a plan with a coin allocation); otherwise the trial.
+  const sub = tier === 'subscriber'
+  const included = sub && access.billing === 'included'
+  const pays = tier !== 'trial' && !included
   const nutrition = tier === 'subscriber' && access.nutrition === true
 
   const operation = OPERATION[kind ?? 'text']
@@ -210,7 +227,7 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   const route = op && op.enabled ? await d.getRoute(operation) : null
   if (!op || !op.enabled || !route) return { status: 503, body: { error: 'provider_unavailable' } }
 
-  // ---- 4. subscribers confirm the exact server-side cost; the trial has no credits and no confirmation
+  // ---- 4. members paying with coins confirm the exact server-side cost; included usage and the trial have no credits and no confirmation
   if (pays && inp.confirm !== op.credits) return { status: 409, body: { error: 'confirmation_required', credits: op.credits, operation } }
 
   // ---- 5. replay / in-flight protection (a retry or double click never calls the provider, charges or uses a trial message twice)
@@ -223,9 +240,21 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     if (!r.allowed) return { status: 429, body: { error: 'rate_limited', retry_after: r.retryAfter } }
   }
 
-  // ---- 7. pay: reserve credits (subscriber) or take one message of the trial conversation (both atomic in the database)
-  let reservationId: string | null = null, trialRemaining: number | null = null
-  if (pays) {
+  // ---- 7. pay: reserve credits, take one request of today's included usage, or take one message of the trial conversation
+  //         (each atomic in the database)
+  let reservationId: string | null = null, trialRemaining: number | null = null, remainingToday: RemainingToday = null
+  if (included) {
+    let u: UsageResult
+    try { u = await d.usageConsume(userId, kind !== null) } catch { return { status: 503, body: { error: 'provider_unavailable' } } }
+    if (!u.allowed) {
+      // the plan changed between the access check and the counter (rare): the client asks again and gets the right flow
+      if (u.reason !== 'daily_limit_reached' && u.reason !== 'daily_media_limit_reached') return { status: 409, body: { error: 'access_changed' } }
+      // an emergency wording is still answered (fixed safety text, no provider) when today's allowance is used up
+      if (urgent) return fixedReply(requestId, inp, URGENT_REPLY[inp.language], { urgent: true }, access)
+      return { status: 429, body: { error: 'daily_limit_reached', resets: 'tomorrow', limit: u.reason === 'daily_media_limit_reached' ? 'media' : 'requests', remaining_today: { requests: Math.max(0, Number(u.remaining_requests ?? 0)), media: Math.max(0, Number(u.remaining_media ?? 0)) } } }
+    }
+    remainingToday = { requests: Math.max(0, Number(u.remaining_requests ?? 0)), media: Math.max(0, Number(u.remaining_media ?? 0)) }
+  } else if (pays) {
     let reservation: { reservationId: string; credits: number }
     try { reservation = await d.reserve(userId, operation, inp.idem) }
     catch (e) {
@@ -245,6 +274,7 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   /** gives back what step 7 took: nothing is ever kept for a request that produced no usable answer */
   const undo = async (reason: string) => {
     if (reservationId) await d.release(reservationId, userId, reason)
+    else if (included) { await d.usageRefund(userId, kind !== null); if (remainingToday) remainingToday = { requests: remainingToday.requests + 1, media: remainingToday.media + (kind ? 1 : 0) } }
     else { await d.trialRefund(userId); if (trialRemaining !== null) trialRemaining += 1 }
   }
   const made = await d.createJob({ userId, idem: inp.idem, operation, persona: inp.persona, language: inp.language, request: inp.message, conversationId: inp.conversationId, tier, mediaKinds: kind ? [kind] : [] })
@@ -261,12 +291,22 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   let attempts: Attempt[], capabilityGap = false
   if (!kind) attempts = candidates.map((c) => ({ ...c, withMedia: false }))
   else {
-    const capable = candidates.filter((c) => canHandle(c.provider, kind))
+    // "can take it" = the provider supports that kind AND is configured (its key exists). A route that names Gemini while only the
+    // Anthropic key is set is a capability gap like any other: the member is told the file was not analysed, never a silent 503.
+    const capable = candidates.filter((c) => canHandle(c.provider, kind) && d.provider(c.provider) !== null)
     if (capable.length) attempts = capable.map((c) => ({ ...c, withMedia: true }))
     else {
       capabilityGap = true; attempts = []
       if (d.mode === 'live' && !candidates.some((c) => c.provider === 'gemini') && d.provider('gemini')) attempts.push({ provider: 'gemini', model: GEMINI_MEDIA_MODEL, withMedia: true })
-      if (d.mode !== 'live' || inp.message) attempts.push(...candidates.map((c) => ({ ...c, withMedia: false })))
+      if (d.mode !== 'live' || inp.message) {
+        // the written message is still answered (text only). If none of the media route's providers is configured, the text route is used.
+        let textual = candidates
+        if (d.mode === 'live' && !candidates.some((c) => d.provider(c.provider) !== null)) {
+          const tr = await d.getRoute(OPERATION.text)
+          if (tr) textual = [{ provider: tr.provider, model: tr.model }, ...(tr.fallback_provider && tr.fallback_model ? [{ provider: tr.fallback_provider, model: tr.fallback_model }] : [])]
+        }
+        attempts.push(...textual.map((c) => ({ ...c, withMedia: false })))
+      }
     }
   }
 
@@ -292,7 +332,8 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     const prov = d.provider(a.provider)
     if (!prov) { lastErr = 'provider_not_configured'; continue }
     const media = a.withMedia && inp.attachment ? inp.attachment : undefined
-    const system = systemPrompt({ persona: inp.persona, tone: inp.tone, language: inp.language, environment: inp.environment, tier, nutrition, medicalFlag: medical === 'flag', attached: kind, mediaProvided: Boolean(media), candidates: library })
+    const systemParts = systemPromptParts({ persona: inp.persona, tone: inp.tone, language: inp.language, environment: inp.environment, tier, nutrition, medicalFlag: medical === 'flag', attached: kind, mediaProvided: Boolean(media), candidates: library })
+    const system = joinSystem(systemParts)
     const isLive = a.provider !== 'mock'
     let est = 0
     if (isLive) {
@@ -301,9 +342,10 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     }
     const t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), d.timeoutMs ?? (media && media.kind !== 'image' ? 55000 : 25000))
     try {
-      const r = await prov.call({ system, user, model: a.model, maxTokens, signal: ctl.signal, media, meta: { message: inp.message, language: inp.language, environment: inp.environment, attachmentKind: kind, tier, candidates: library } })
+      const r = await prov.call({ system, systemParts, user, model: a.model, maxTokens, signal: ctl.signal, media, meta: { message: inp.message, language: inp.language, environment: inp.environment, attachmentKind: kind, tier, candidates: library } })
       clearTimeout(timer)
-      const cost = isLive ? costMicro(a.model, r.inputTokens, r.outputTokens, media?.kind === 'audio') : 0
+      const cacheRead = r.cacheReadTokens ?? 0, cacheWrite = r.cacheWriteTokens ?? 0
+      const cost = isLive ? costMicro(a.model, r.inputTokens, r.outputTokens, media?.kind === 'audio', { read: cacheRead, write: cacheWrite }) : 0
       if (isLive) await d.budgetSettle(est, cost)                          // the provider was paid even if the answer is unusable
       const v = validateOutput(r.text ?? '')
       if (!v.ok) { lastErr = 'invalid_output'; continue }                  // the member is never charged for an unusable answer
@@ -347,13 +389,14 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
       const unusable = kind && !media && !mock ? 'media_not_analyzed' : nothingFromLibrary && !mealCard ? 'library_no_match' : null
       const charge = reservationId !== null && !unusable
       if (reservationId) { if (charge) await d.settle(reservationId, userId); else await d.release(reservationId, userId, unusable ?? 'not_charged') }
+      else if (included && unusable) await undo(unusable)                  // included usage: the unit goes back exactly where a reservation would be released
       const out: Record<string, unknown> = {
         request_id: requestId, conversation_id: inp.conversationId, chat_reply: chatReply, voice_script: voiceScript, off_topic: offTopic, safety,
         workout_card: workoutCard, workout_plan: workoutPlan, meal_card: mealCard, locked, upgrade,
         media: { received: kind ? [kind] : [], analyzed, note: kind && !media ? MEDIA_NOTE[inp.language] : null },
-        credits_charged: charge ? op.credits : 0, mock, replay: false, access: accessOut({ ...access, nutrition }, trialRemaining),
+        credits_charged: charge ? op.credits : 0, mock, replay: false, access: accessOut({ ...access, nutrition }, trialRemaining, remainingToday),
       }
-      await d.finishJob(userId, inp.idem, { status: 'done', response_text: JSON.stringify(out), provider: a.provider, model: a.model, input_tokens: r.inputTokens, output_tokens: r.outputTokens, cost_usd_micro: cost, latency_ms: Date.now() - t0, finished_at: new Date().toISOString() })
+      await d.finishJob(userId, inp.idem, { status: 'done', response_text: JSON.stringify(out), provider: a.provider, model: a.model, input_tokens: r.inputTokens + cacheRead + cacheWrite, output_tokens: r.outputTokens, cost_usd_micro: cost, latency_ms: Date.now() - t0, finished_at: new Date().toISOString() })
       return { status: 200, body: out }
     } catch (_e) {
       clearTimeout(timer)
@@ -367,6 +410,7 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     await undo('media_not_analyzed')
     const out = fixedReply(requestId, inp, { chat_reply: MEDIA_NOTE[inp.language], voice_script: MEDIA_NOTE[inp.language] }, {}, { ...access, nutrition }, MEDIA_NOTE[inp.language])
     ;(out.body.access as Record<string, unknown>).trial_remaining = trialRemaining
+    ;(out.body.access as Record<string, unknown>).remaining_today = remainingToday
     await d.finishJob(userId, inp.idem, { status: 'done', response_text: JSON.stringify(out.body), error_code: 'media_not_analyzed', finished_at: new Date().toISOString() })
     return out
   }

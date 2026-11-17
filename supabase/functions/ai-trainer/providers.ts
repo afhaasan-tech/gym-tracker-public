@@ -5,13 +5,15 @@
 import { inferMuscles, type LibraryExercise } from './library.ts'
 import type { MediaKind, Tier } from './prompts.ts'
 import { REDIRECT } from './prompts.ts'
-import { GEMINI_RESPONSE_SCHEMA } from './schemas.ts'
+import { GEMINI_RESPONSE_JSON_SCHEMA } from './schemas.ts'
 
 export type Media = { kind: MediaKind; mimeType: string; dataBase64: string; bytes: number }
 /** tier + candidates are only read by the mock (a live model gets them through the system prompt): the library exercises the server offers. */
 export type ProviderMeta = { message: string; language: 'ar' | 'en'; environment: 'gym' | 'home'; attachmentKind: MediaKind | null; tier?: Tier; candidates?: LibraryExercise[] }
-export type ProviderRequest = { system: string; user: string; model: string; maxTokens: number; signal: AbortSignal; media?: Media; meta: ProviderMeta }
-export type ProviderResult = { text: string; inputTokens: number; outputTokens: number }
+/** system = the whole system prompt. systemParts (optional) = the same text split into a cacheable prefix and the per-request tail. */
+export type ProviderRequest = { system: string; systemParts?: { stable: string; variable: string }; user: string; model: string; maxTokens: number; signal: AbortSignal; media?: Media; meta: ProviderMeta }
+/** inputTokens = input billed at the normal rate. Tokens read from / written to a prompt cache are reported separately (they have their own price). */
+export type ProviderResult = { text: string; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }
 export interface Provider { name: string; call(r: ProviderRequest): Promise<ProviderResult> }
 
 // ---------------------------------------------------------------- what each provider can be given
@@ -22,22 +24,33 @@ export const CAPABILITIES: Record<string, readonly Capability[]> = {
   gemini: ['text', 'image', 'audio', 'video'],
 }
 export const canHandle = (provider: string, kind: Capability): boolean => (CAPABILITIES[provider] ?? []).includes(kind)
-/** The model used when media has to be handed to Gemini because the routed provider cannot take it. */
-export const GEMINI_MEDIA_MODEL = 'gemini-2.5-flash'
+/** The model used when media has to be handed to Gemini because the routed provider cannot take it.
+ *  (gemini-2.5-flash is deprecated: from 2026-12-01 Google routes it to gemini-3.5-flash-lite and bills that model's rates.) */
+export const GEMINI_MEDIA_MODEL = 'gemini-3.5-flash-lite'
 
-// USD per 1M tokens == micro-USD per token. Conservative (higher) published rows. Verify before going live.
+// USD per 1M tokens == micro-USD per token. Checked on 2026-11-17 against the Anthropic model table (Claude API skill, cached
+// 2026-11-03) and Google's public Gemini API pricing page (paid tier, standard). Re-check before going live and whenever a route changes.
+//   cacheRead / cacheWrite: prompt-cache prices (Anthropic: read 0.1x input on Haiku 5.5 and $0.10 on Sonnet 5.5; 5-minute write 1.25x).
+//   long: Claude Haiku 5.5 has a second rate card for prompts above 100K tokens (never reached here: inputs are capped far below).
+//   audioIn: models whose audio input has its own (higher) price.
 // A model that is not listed here has no price, so it can never be called (estimateMicro throws -> the attempt is skipped).
-export const PRICES: Record<string, { in: number; out: number; audioIn?: number }> = {
-  'claude-haiku-5-5': { in: 0.5, out: 2.5 },
-  'claude-sonnet-5-5': { in: 2, out: 10 },
-  'gemini-2.5-flash': { in: 0.3, out: 2.5, audioIn: 1 },
+export type Price = { in: number; out: number; audioIn?: number; cacheRead?: number; cacheWrite?: number; long?: { over: number; in: number; out: number } }
+export const PRICES: Record<string, Price> = {
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125, long: { over: 100_000, in: 0.5, out: 2.5 } },
+  'claude-sonnet-5-5': { in: 2, out: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  'gemini-3.5-flash-lite': { in: 0.3, out: 2.5 },                       // one input price for text, image, video and audio; output includes thinking
+  'gemini-2.5-flash': { in: 0.3, out: 2.5, audioIn: 1 },                // deprecated by Google; kept so an old route stays priced until it is changed
   'gemini-2.5-flash-lite': { in: 0.1, out: 0.4, audioIn: 0.3 },
   'mock-model': { in: 0, out: 0 },
 }
 export const approxTokens = (s: string) => Math.ceil(s.length / 3.2)   // pessimistic for Arabic
-export function costMicro(model: string, inTok: number, outTok: number, audio = false): number {
+/** Real cost of one call. inTok = input at the normal rate; cache = tokens read from / written to the prompt cache (priced separately). */
+export function costMicro(model: string, inTok: number, outTok: number, audio = false, cache: { read?: number; write?: number } = {}): number {
   const p = PRICES[model]; if (!p) throw new Error('no price for model ' + model)
-  return Math.ceil(inTok * (audio ? (p.audioIn ?? p.in) : p.in) + outTok * p.out)      // audio request: every input token at the audio rate (never under-counts)
+  const read = cache.read ?? 0, write = cache.write ?? 0
+  const long = p.long && inTok + read + write > p.long.over ? p.long : null, scale = long ? long.in / p.in : 1
+  const inRate = long ? long.in : audio ? (p.audioIn ?? p.in) : p.in      // audio request: every input token at the audio rate (never under-counts)
+  return Math.ceil(inTok * inRate + read * (p.cacheRead ?? p.in) * scale + write * (p.cacheWrite ?? p.in) * scale + outTok * (long ? long.out : p.out))
 }
 /** Pessimistic input-token count for an attachment (used only for the pre-call budget estimate). */
 export function mediaTokens(m: Media): number {
@@ -47,9 +60,10 @@ export function mediaTokens(m: Media): number {
 }
 /** Upper bound used BEFORE a billable call. */
 export function estimateMicro(model: string, system: string, user: string, maxTokens: number, media?: Media): number {
-  const base = costMicro(model, approxTokens(system + user), maxTokens)
+  const p = PRICES[model]; if (!p) throw new Error('no price for model ' + model)
+  // the system prompt may be WRITTEN to the prompt cache (dearer than plain input): the estimate assumes it is, so it stays an upper bound
+  const base = costMicro(model, approxTokens(user), maxTokens, false, { write: approxTokens(system) })
   if (!media) return base
-  const p = PRICES[model]
   return base + Math.ceil(mediaTokens(media) * (media.kind === 'audio' ? (p.audioIn ?? p.in) : p.in))
 }
 
@@ -166,22 +180,40 @@ export function anthropicProvider(apiKey: string): Provider {
       const content: unknown[] = []
       if (r.media) content.push({ type: 'image', source: { type: 'base64', media_type: r.media.mimeType, data: r.media.dataBase64 } })
       content.push({ type: 'text', text: r.user + JSON_ONLY })
+      // Prompt caching: the part of the system prompt that is identical for every request with the same settings is marked as a
+      // cacheable prefix (5-minute cache); a subscriber's per-request exercise list follows it, uncached. A prefix shorter than the
+      // model's minimum is simply not cached (no error).
+      const system = r.systemParts
+        ? [{ type: 'text', text: r.systemParts.stable, cache_control: { type: 'ephemeral' } }, ...(r.systemParts.variable ? [{ type: 'text', text: r.systemParts.variable }] : [])]
+        : r.system
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: r.signal,
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        // no sampling parameters and no prefill (rejected by current models); low effort keeps thinking inside max_tokens
-        body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens, system: r.system, output_config: { effort: 'low' }, messages: [{ role: 'user', content }] }),
+        // Claude Haiku 5.5 / Sonnet 5.5: no sampling parameters, no prefill, no thinking budget (each is a 400). Thinking is adaptive
+        // and on by default and counts toward max_tokens; effort "low" (inside output_config) keeps it small for these chat answers.
+        body: JSON.stringify({ model: r.model, max_tokens: r.maxTokens, system, output_config: { effort: 'low' }, messages: [{ role: 'user', content }] }),
       })
       if (!res.ok) throw new Error('provider_http_' + res.status)
       const j = await res.json()
+      // HTTP 200 does not mean an answer: a safety classifier may decline (refusal), and a cut-off answer is not valid JSON
       if (j.stop_reason === 'refusal') throw new Error('provider_refusal')
+      if (j.stop_reason === 'max_tokens') throw new Error('provider_truncated')
+      // content blocks are read by TYPE: the answer may be preceded by (empty) thinking blocks
       const text = Array.isArray(j.content) ? j.content.filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('\n') : ''
-      return { text, inputTokens: Number(j.usage?.input_tokens ?? 0), outputTokens: Number(j.usage?.output_tokens ?? 0) }
+      const u = j.usage ?? {}
+      return { text, inputTokens: Number(u.input_tokens ?? 0), outputTokens: Number(u.output_tokens ?? 0), cacheReadTokens: Number(u.cache_read_input_tokens ?? 0), cacheWriteTokens: Number(u.cache_creation_input_tokens ?? 0) }
     },
   }
 }
 
-const GEMINI_MIME: Record<string, string> = { 'audio/m4a': 'audio/mp4', 'audio/x-m4a': 'audio/mp4', 'audio/x-wav': 'audio/wav', 'audio/mpeg': 'audio/mp3' }
+// What the app may upload -> the MIME names Google documents for inline audio / video.
+const GEMINI_MIME: Record<string, string> = { 'audio/mp4': 'audio/m4a', 'audio/x-m4a': 'audio/m4a', 'audio/x-wav': 'audio/wav', 'audio/mpeg': 'audio/mp3', 'video/quicktime': 'video/mov' }
+/** Thought tokens count toward maxOutputTokens and are billed as output, so thinking is kept at the lowest setting the model accepts:
+ *  Gemini 2.5 Flash / Flash-Lite take a token budget (0 = off); Gemini 3 and later take a level ("minimal", or "low" where minimal does not exist). */
+export function geminiThinking(model: string): Record<string, unknown> {
+  if (model.startsWith('gemini-2.5-')) return { thinkingBudget: 0 }
+  return { thinkingLevel: /^gemini-(3\.8-flash|4)/.test(model) ? 'low' : 'minimal' }
+}
 export function geminiProvider(apiKey: string): Provider {
   return {
     name: 'gemini',
@@ -197,13 +229,17 @@ export function geminiProvider(apiKey: string): Provider {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: r.system }] },
           contents: [{ role: 'user', parts }],
-          generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_RESPONSE_SCHEMA, maxOutputTokens: r.maxTokens, temperature: 0.4 },
+          // JSON Schema output; no sampling parameters (ignored by the newer models); thinking at its minimum (see geminiThinking)
+          generationConfig: { responseMimeType: 'application/json', responseJsonSchema: GEMINI_RESPONSE_JSON_SCHEMA, maxOutputTokens: r.maxTokens, thinkingConfig: geminiThinking(r.model) },
         }),
       })
       if (!res.ok) throw new Error('provider_http_' + res.status)
       const j = await res.json()
+      // only a normally finished answer is used: a blocked prompt, a safety stop or a cut-off answer (MAX_TOKENS) is a failed call
+      const finish = j.candidates?.[0]?.finishReason
+      if (!j.candidates?.length || (finish && finish !== 'STOP')) throw new Error('provider_' + (finish === 'MAX_TOKENS' ? 'truncated' : 'refusal'))
       const out = j.candidates?.[0]?.content?.parts
-      const text = Array.isArray(out) ? out.map((p: { text?: string }) => p.text ?? '').join('') : ''
+      const text = Array.isArray(out) ? out.filter((p: { thought?: boolean }) => !p.thought).map((p: { text?: string }) => p.text ?? '').join('') : ''
       const u = j.usageMetadata ?? {}
       return { text, inputTokens: Number(u.promptTokenCount ?? 0), outputTokens: Number(u.candidatesTokenCount ?? 0) + Number(u.thoughtsTokenCount ?? 0) }
     },

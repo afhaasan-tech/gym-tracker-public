@@ -53,17 +53,20 @@ const PLACE = (env: Environment) => (env === 'home' ? 'HOME (bodyweight, bands, 
 
 // SUBSCRIBERS: the full personalised trainer, but every exercise comes from the VORA library. The server chose the candidates below
 // before this call; the model may only point at one of them by id. core.ts drops any other id, so an invented exercise can never reach the app.
-const COACHING_LIBRARY = (env: Environment, candidates: LibraryExercise[]) => `Coaching:
+// The rules are the same for every request (they are part of the cacheable prefix); the list itself changes per request and is sent
+// LAST (LIBRARY_LIST), after everything that does not change.
+const COACHING_LIBRARY = (env: Environment) => `Coaching:
 - Muscle groups use ONLY these fixed ids: ${MUSCLES.join(', ')} (legs/glutes map to "hips" or "calf", core maps to "abs", lats/traps map to "back").
 - The user trains at: ${PLACE(env)}.
-- EXERCISE LIBRARY RULE: the ONLY exercises you may recommend, name or put in a card or plan are the ones in the VORA LIBRARY list below (it is already filtered for where the user trains). Refer to an exercise ONLY by its "id", copied exactly. Never invent, rename, combine or describe an exercise that is not in the list, not in a card, not in a plan and not in the text.
+- EXERCISE LIBRARY RULE: the ONLY exercises you may recommend, name or put in a card or plan are the ones in the VORA LIBRARY list at the end of these instructions (it is already filtered for where the user trains). Refer to an exercise ONLY by its "id", copied exactly. Never invent, rename, combine or describe an exercise that is not in the list, not in a card, not in a plan and not in the text.
 - You do NOT write the exercise name, muscles, equipment, posture cues, safety note or alternatives: the server fills all of that in from the library record. You only choose the id, "sets", "reps" (a string such as "8-12"), "rest_seconds" (stay close to the defaults shown, adjusted to the user's level and goal) and an optional short "note" (one sentence of personal advice, no new exercise in it).
 - When the user asks for ONE exercise (or an alternative to one), fill "workout_card" with exactly one exercise from the list. Otherwise "workout_card" is null.
-${candidates.length
-    ? `- If nothing in the list fits what the user asked for, set the card to null and say plainly that the VORA library has no matching exercise for that right now. Do not suggest one from your own knowledge.
-VORA LIBRARY (id | English name | Arabic name | main muscle | equipment | level | default sets x reps, rest):
+- If nothing in the list fits what the user asked for, or the list is empty, set the card and the plan to null and say plainly that the VORA library has no matching exercise for that right now. Do not suggest one from your own knowledge.`
+/** The per-request part of a subscriber's prompt: the candidates the server picked for THIS request. */
+const LIBRARY_LIST = (candidates: LibraryExercise[]) => (candidates.length
+  ? `VORA LIBRARY (id | English name | Arabic name | main muscle | equipment | level | default sets x reps, rest):
 ${candidateLines(candidates)}`
-    : `- VORA LIBRARY: there is NO exercise available for this request right now. Set "workout_card" and "workout_plan" to null and say plainly that no matching exercise is available in the VORA library at the moment. Do not suggest an exercise from your own knowledge.`}`
+  : `VORA LIBRARY: there is NO exercise available for this request right now. Set "workout_card" and "workout_plan" to null and say plainly that no matching exercise is available in the VORA library at the moment. Do not suggest an exercise from your own knowledge.`)
 
 // TRIAL and COINS: short, correct, general answers. No library cards, no plans, no nutrition. The app (not the model) offers the upgrade.
 const COACHING_SHORT = (env: Environment) => `Coaching (SHORT ANSWER MODE, decided by the server):
@@ -107,12 +110,19 @@ const FORMAT = (tier: Tier) => (tier === 'subscriber'
 
 export type PromptOptions = { persona: Persona; tone: Tone; language: Lang; environment: Environment; tier: Tier; nutrition: boolean; medicalFlag: boolean; attached: MediaKind | null; mediaProvided: boolean; candidates?: LibraryExercise[] }
 
-export function systemPrompt(o: PromptOptions): string {
-  const parts = [CHARACTER[o.persona], CONDUCT, TONE[o.tone], LANG[o.language], SCOPE(o.language), o.tier === 'subscriber' ? COACHING_LIBRARY(o.environment, o.candidates ?? []) : COACHING_SHORT(o.environment), ENTITLEMENTS(o.tier, o.nutrition), SAFETY, MEDIA(o.attached, o.mediaProvided)]
+/**
+ * The system prompt in two pieces. "stable" depends only on the member's settings (character, tone, language, place, tier, nutrition,
+ * media state): it is byte-identical for every request with the same settings, so a provider can cache it as a prefix. "variable" is
+ * the part that changes per request (a subscriber's library candidates) and always comes last; '' when there is none.
+ */
+export function systemPromptParts(o: PromptOptions): { stable: string; variable: string } {
+  const parts = [CHARACTER[o.persona], CONDUCT, TONE[o.tone], LANG[o.language], SCOPE(o.language), o.tier === 'subscriber' ? COACHING_LIBRARY(o.environment) : COACHING_SHORT(o.environment), ENTITLEMENTS(o.tier, o.nutrition), SAFETY, MEDIA(o.attached, o.mediaProvided)]
   if (o.medicalFlag) parts.push('Caution for this request: the user mentions hormones, steroids or a similar substance. Do not give doses, cycles, sources or usage advice. Give only general, conservative information and recommend a qualified doctor.')
   parts.push(UNTRUSTED, FORMAT(o.tier))
-  return parts.join('\n\n')
+  return { stable: parts.join('\n\n'), variable: o.tier === 'subscriber' ? LIBRARY_LIST(o.candidates ?? []) : '' }
 }
+export const joinSystem = (p: { stable: string; variable: string }): string => (p.variable ? p.stable + '\n\n' + p.variable : p.stable)
+export function systemPrompt(o: PromptOptions): string { return joinSystem(systemPromptParts(o)) }
 
 /** The user turn: a JSON envelope so that user text can never be confused with instructions. */
 export function userEnvelope(u: { message: string; history: Turn[]; environment: Environment; attached: MediaKind | null }): string {

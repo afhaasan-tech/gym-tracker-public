@@ -1,6 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { type Access, CreditError, type Deps, handleTrainer, type TrialResult } from './core.ts'
+import { type Access, CreditError, type Deps, handleTrainer, type TrialResult, type UsageResult } from './core.ts'
 import { anthropicProvider, geminiProvider, mockProvider, type Provider } from './providers.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
@@ -50,6 +50,9 @@ Deno.serve(async (req) => {
     async access(userId) { const { data, error } = await db.rpc('trainer_access', { p_user: userId }); if (error || !data || typeof data.tier !== 'string') throw new Error('access_unavailable'); return data as Access },
     async trialConsume(userId, conversationId) { const { data, error } = await db.rpc('trainer_trial_consume', { p_user: userId, p_conversation: conversationId }); if (error || !data) throw new Error('trial_unavailable'); return data as TrialResult },
     async trialRefund(userId) { await db.rpc('trainer_trial_refund', { p_user: userId }) },
+    // included plan usage: the daily counter lives in the database (atomic, service role only); an error fails closed in core.ts
+    async usageConsume(userId, media) { const { data, error } = await db.rpc('trainer_usage_consume', { p_user: userId, p_media: media }); if (error || !data || typeof data.allowed !== 'boolean') throw new Error('usage_unavailable'); return data as UsageResult },
+    async usageRefund(userId, media) { await db.rpc('trainer_usage_refund', { p_user: userId, p_media: media }) },
     // the exercise library is readable by no client role: the candidates come from a service-role function (compact records only)
     async libraryCandidates(muscles, environment, limit) { const { data, error } = await db.rpc('library_candidates', { p_muscles: muscles.length ? muscles : null, p_environment: environment, p_limit: limit }); if (error) throw new Error('library_unavailable'); return data },
   }
