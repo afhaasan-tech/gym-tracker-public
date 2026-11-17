@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase'
 import { c, fs } from '../lib/theme'
 
 type Pack = { key: string; name_ar: string; name_en: string; coins: number; price_kwd: number }
-type Plan = { key: string; name_ar: string; name_en: string; price_kwd: number; monthly_credits: number | null; pause_eligible: boolean; includes_nutrition?: boolean }
+type Plan = { key: string; name_ar: string; name_en: string; price_kwd: number; monthly_credits: number | null; pause_eligible: boolean; includes_nutrition?: boolean; period_days?: number }
 const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB')
 
 export default function Store() {
@@ -83,14 +83,14 @@ export default function Store() {
       {plans === null ? <Loading /> : plans.map((p) => (
         <Card key={p.key} testID="plan-card">
           <H2>{L(p.name_ar, p.name_en)}</H2>
-          <T bold size={fs.xl} style={{ color: c.accent }}>{Number(p.price_kwd).toFixed(3)} KWD <T muted size={fs.sm}>/ {L('شهر', 'month')}</T></T>
+          <T bold size={fs.xl} style={{ color: c.accent }}>{Number(p.price_kwd).toFixed(3)} KWD <T muted size={fs.sm}>/ {Number(p.period_days ?? 30) >= 360 ? L('سنة', 'year') : L('شهر', 'month')}</T></T>
           <View style={{ gap: 2 }}>
             <T size={fs.sm}>• {L('مدربك الشخصي بالذكاء الاصطناعي', 'Your AI personal trainer')}</T>
             <T size={fs.sm}>• {p.monthly_credits ? `${new Intl.NumberFormat('en-US').format(p.monthly_credits)} ${L('ڤورا كوينز شهرياً', 'VORA Coins / month')}` : L('استخدام عادل (حدود قابلة للتعديل)', 'Fair use (configurable limits)')}</T>
             <T size={fs.sm}>• {p.includes_nutrition ? L('يشمل إرشاد التغذية', 'Includes nutrition guidance') : L('بدون إرشاد التغذية', 'No nutrition guidance')}</T>
-            <T size={fs.sm}>• {p.pause_eligible ? L('إيقاف مؤقت حتى 14 يوماً', 'Pause up to 14 days') : L('بدون إيقاف مؤقت', 'No pause')}</T>
+            <T size={fs.sm}>• {L('مكتبة التمارين المتقدمة والخطط الشخصية', 'Advanced exercise library and personal plans')}</T>
           </View>
-          {checkoutAvailable ? <Button testID={`buy-plan-${p.key}`} busy={buying === 'subscription:' + p.key} disabled={Boolean(buying)} label={access?.tier === 'subscriber' && access.plan_key === p.key ? L('جدّد 30 يوم', 'Renew 30 days') : L('اشترك 30 يوم', 'Subscribe for 30 days')} onPress={() => { void buy('subscription', p.key) }} /> : null}
+          {checkoutAvailable ? <Button testID={`buy-plan-${p.key}`} busy={buying === 'subscription:' + p.key} disabled={Boolean(buying)} label={access?.tier === 'subscriber' && access.plan_key === p.key ? L(`جدّد ${p.period_days ?? 30} يوم`, `Renew ${p.period_days ?? 30} days`) : L(`اشترك ${p.period_days ?? 30} يوم`, `Subscribe for ${p.period_days ?? 30} days`)} onPress={() => { void buy('subscription', p.key) }} /> : null}
         </Card>
       ))}
     </ScrollView>

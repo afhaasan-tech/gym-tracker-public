@@ -4,6 +4,7 @@ export interface Macros { calories: number; protein_g: number; carbs_g: number; 
 export interface WorkoutCardData {
   exercise_name_ar: string; exercise_name_en: string; target_muscle: MuscleId; secondary_muscles: MuscleId[]
   environment: 'gym' | 'home'; equipment: string; sets: number; reps: string; rest_seconds: number
+  exercise_id?: string; source?: 'library'
   posture_cues: string[]; alternative: { name_ar: string; reason_ar: string } | null
 }
 export interface IngredientData {
@@ -26,6 +27,7 @@ export interface TrainerReply {
   safety: { injury_reported: boolean; injured_area: string | null; refused: boolean; refusal_reason: string; urgent: boolean }
   workout_card: WorkoutCardData | null; workout_plan: WorkoutPlanData | null; meal_card: MealCardData | null
   locked: string[]
+  upgrade?: { reason: 'plan' | 'nutrition' | 'library' | 'personalised' } | null
   media: { received: MediaKind[]; analyzed: MediaKind[]; note: string | null }
   credits_charged: number; mock: boolean; replay: boolean
   access: { tier: 'trial' | 'subscriber'; nutrition: boolean; trial_remaining: number | null }
@@ -33,6 +35,6 @@ export interface TrainerReply {
 export type ChatMessage = {
   id: string; role: 'user' | 'assistant'; text: string
   pending?: boolean; error?: boolean; mock?: boolean; charged?: number; attachment?: MediaKind
-  voiceScript?: string; injuredArea?: string | null; locked?: string[]; mediaNote?: string | null
+  voiceScript?: string; injuredArea?: string | null; locked?: string[]; mediaNote?: string | null; upgrade?: 'plan' | 'nutrition' | 'library' | 'personalised' | null
   workoutCard?: WorkoutCardData | null; workoutPlan?: WorkoutPlanData | null; mealCard?: MealCardData | null
 }

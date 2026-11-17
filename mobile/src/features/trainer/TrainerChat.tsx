@@ -8,6 +8,7 @@ import * as Speech from 'expo-speech'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { Button, Card, Chip, ErrorText, Screen, T } from '../../components/ui'
+import { UpgradePrompt } from '../../components/Upgrade'
 import { refreshAccess, useAccess } from '../../lib/access'
 import { useI18n } from '../../lib/i18n'
 import { audioAttachment, MediaError, pickMedia, type Attachment } from '../../lib/media'
@@ -40,6 +41,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
   const [input, setInput] = useState(''), [attachment, setAttachment] = useState<Attachment | null>(null)
   const [busy, setBusy] = useState(false), [note, setNote] = useState('')
   const [confirm, setConfirm] = useState<{ draft: Draft; credits: number } | null>(null)
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
   const [voiceOut, setVoiceOut] = useState(false)
   const [consent, setConsent] = useState<boolean | null>(null), [askConsent, setAskConsent] = useState<null | (() => void)>(null)
   const [recording, setRecording] = useState(false), [recMs, setRecMs] = useState(0)
@@ -111,7 +113,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
     const d = res.data
     patch(botId, (m) => ({
       ...m, pending: false, text: d.chat_reply, mock: d.mock, charged: d.credits_charged, voiceScript: d.voice_script, injuredArea: d.safety?.injured_area ?? null,
-      locked: d.locked, mediaNote: d.media?.note ?? null, workoutCard: d.workout_card, workoutPlan: d.workout_plan, mealCard: d.meal_card,
+      locked: d.locked, upgrade: d.upgrade?.reason ?? null, mediaNote: d.media?.note ?? null, workoutCard: d.workout_card, workoutPlan: d.workout_plan, mealCard: d.meal_card,
     }))
     if (voiceOut && d.voice_script) Speech.speak(d.voice_script, { language: speechLang, rate: 0.95 })
     refreshAccess()
@@ -214,7 +216,8 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
               {m.workoutCard ? <WorkoutCard card={m.workoutCard} injuredArea={m.injuredArea} onOpenMuscleMap={(mu) => router.push({ pathname: '/workouts', params: { muscle: mu } })} /> : null}
               {m.workoutPlan ? <WorkoutPlanCard plan={m.workoutPlan} /> : null}
               {m.mealCard ? <MealCard card={m.mealCard} onMissingIngredient={onMissingIngredient} /> : null}
-              {m.locked && m.locked.length > 0 ? (
+              {m.upgrade && !dismissed[m.id] ? <UpgradePrompt reason={m.upgrade} onDismiss={() => setDismissed((x) => ({ ...x, [m.id]: true }))} /> : null}
+              {!m.upgrade && m.locked && m.locked.length > 0 ? (
                 <View style={st.info} testID="locked-note">
                   <T size={fs.xs} style={{ color: c.gold }}>🔒 {m.locked.includes('nutrition') ? L('التغذية ضمن الباقات اللي تشملها.', 'Nutrition is included in eligible plans.') : L('الخطط الشخصية الكاملة للمشتركين.', 'Full personalised plans are for subscribers.')}</T>
                   <Button variant="link" label={L('الباقات وڤورا كوينز', 'Plans & VORA Coins')} onPress={() => router.push('/store')} />

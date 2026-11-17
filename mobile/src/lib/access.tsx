@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
 export type Access = {
-  tier: 'subscriber' | 'coins' | 'trial' | 'none'; purchased_coins?: number; plan_key: string | null; nutrition: boolean; period_end: string | null; auto_renew: boolean | null
+  tier: 'subscriber' | 'coins' | 'trial' | 'none'; purchased_coins?: number; library?: boolean; period?: 'monthly' | 'yearly' | null; plan_key: string | null; nutrition: boolean; period_end: string | null; auto_renew: boolean | null
   trial: { available: boolean; started: boolean; conversation_id: string | null; remaining: number; ends_at: string | null; ended: boolean; max_messages: number }
 }
 const listeners = new Set<() => void>()
