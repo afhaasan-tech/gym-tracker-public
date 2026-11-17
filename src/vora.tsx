@@ -7,18 +7,7 @@ import { useLang } from './i18n'
 import { Page } from './ui'
 import { Coins, Mail, Send, ShieldCheck, Sparkles } from 'lucide-react'
 
-// The VORA AI screens are shown when the database flag `ai_coach_enabled` is on (owner-controlled, off by default),
-// or when a build sets VITE_VORA_AI=1 (staging). While it is off, the app behaves exactly as before.
-export const VORA_ENV_ON = import.meta.env.VITE_VORA_AI === '1'
-let voraCache: boolean | null = VORA_ENV_ON ? true : null
-export function useVoraOn(): boolean | null {
-  const [on, setOn] = useState<boolean | null>(voraCache)
-  useEffect(() => {
-    if (voraCache !== null) return
-    supabase.rpc('public_flags').then(({ data, error }) => { voraCache = !error && Boolean((data as Record<string, boolean> | null)?.ai_coach_enabled); setOn(voraCache) })
-  }, [])
-  return on
-}
+export { VORA_ENV_ON, useVoraOn } from './voraFlag'
 const useL = () => { const lang = useLang(); return (ar: string, en: string) => (lang === 'ar' ? ar : en) }
 
 // ------------------------------------------------------------ device secret + Edge Function helpers

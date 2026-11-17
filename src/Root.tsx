@@ -1,20 +1,25 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { Auth, MemberArea, SetNewPassword } from './App'
-import VerifyEmail from './VerifyEmail'
-import ProfileView from './ProfileView'
 import Shell, { publicNav, memberNav } from './Shell'
 import { safeNext, useRoute } from './route'
 import { useRoles } from './useRoles'
-import { BookingWizard, CoachProfile, CoachesPage, FoodHub, FoodInfo, FoodServices, HomePage, Journey, MyBookings, PublicLibrary, SearchPage, SelfGuided, SportDetail, SportsPage } from './pages'
-import CoachArea, { ClaimCoachCard } from './coach'
-import OwnerArea from './owner'
+import { HomePage } from './Home'
 import { t, useLang } from './i18n'
-import PlansPage from './PlansPage'
-import { useVoraOn, DeviceGate, Onboarding, Wallet, CoachChat, VoraPlans, OwnerCommerce } from './vora'
+import { useVoraOn } from './voraFlag'
 import { Bot, Wallet as WalletIcon, Shield as ShieldIcon, Tag as TagIcon, Dumbbell as DumbIcon, User as UserIcon, Salad as SaladIcon } from 'lucide-react'
-import PayReturn from './PayReturn'
+
+// Everything except the shell and the home page is loaded on demand, so the first screen does not download the whole app.
+type Mod<T> = { default: T }
+const pick = <M, K extends keyof M>(load: () => Promise<M>, k: K) => lazy(() => load().then((m) => ({ default: m[k] }) as Mod<M[K] & React.ComponentType<any>>))
+const app = () => import('./App'), pages = () => import('./pages'), vora = () => import('./vora'), coach = () => import('./coach')
+const Auth = pick(app, 'Auth'), MemberArea = pick(app, 'MemberArea'), SetNewPassword = pick(app, 'SetNewPassword')
+const BookingWizard = pick(pages, 'BookingWizard'), CoachProfile = pick(pages, 'CoachProfile'), CoachesPage = pick(pages, 'CoachesPage'), FoodHub = pick(pages, 'FoodHub'), FoodInfo = pick(pages, 'FoodInfo'), FoodServices = pick(pages, 'FoodServices'), Journey = pick(pages, 'Journey'), MyBookings = pick(pages, 'MyBookings'), PublicLibrary = pick(pages, 'PublicLibrary'), SearchPage = pick(pages, 'SearchPage'), SelfGuided = pick(pages, 'SelfGuided'), SportDetail = pick(pages, 'SportDetail'), SportsPage = pick(pages, 'SportsPage')
+const DeviceGate = pick(vora, 'DeviceGate'), Onboarding = pick(vora, 'Onboarding'), Wallet = pick(vora, 'Wallet'), CoachChat = pick(vora, 'CoachChat'), VoraPlans = pick(vora, 'VoraPlans'), OwnerCommerce = pick(vora, 'OwnerCommerce')
+const CoachArea = lazy(coach), ClaimCoachCard = pick(coach, 'ClaimCoachCard')
+const OwnerArea = lazy(() => import('./owner')), PlansPage = lazy(() => import('./PlansPage')), PayReturn = lazy(() => import('./PayReturn'))
+const ProfileView = lazy(() => import('./ProfileView')), VerifyEmail = lazy(() => import('./VerifyEmail'))
+const Wait = ({ children }: { children: React.ReactNode }) => <Suspense fallback={<p className="muted empty">{t("جاري التحميل…")}</p>}>{children}</Suspense>
 
 const MuscleExplorer = lazy(() => import('./MuscleExplorer'))
 const MEMBER_ONLY = ['/workouts', '/bookings', '/profile', '/ai-coach', '/wallet', '/onboarding', '/vora-admin', '/food/diary']
@@ -47,11 +52,12 @@ function RootInner() {
     if (needsLogin) go(`/login?next=${encodeURIComponent(path)}`)
   }, [ready, session, path, needsLogin, query, go])
 
-  if (!ready || voraFlag === null) return null
-  if (session && recovering) return <SetNewPassword onDone={() => setRecovering(false)} />
+  // A visitor without a session never waits for the flag: it only changes what a signed-in member sees (and /plans).
+  if (!ready || (voraFlag === null && (session || path === '/plans'))) return null
+  if (session && recovering) return <Wait><SetNewPassword onDone={() => setRecovering(false)} /></Wait>
   // Defense in depth: an address that was never verified never reaches any private page.
-  if (session && !session.user.email_confirmed_at) return <VerifyEmail email={session.user.email ?? ''} onBack={() => supabase.auth.signOut()} />
-  if (path === '/login' && !session) return <Auth />
+  if (session && !session.user.email_confirmed_at) return <Wait><VerifyEmail email={session.user.email ?? ''} onBack={() => supabase.auth.signOut()} /></Wait>
+  if (path === '/login' && !session) return <Wait><Auth /></Wait>
 
   const voraItems = (): import('./Shell').NavItem[] => [
     { to: '/ai-coach', label: 'AI Coach · المدرب الذكي', short: 'Coach', Icon: Bot, primary: true },
@@ -88,7 +94,7 @@ function RootInner() {
   else if (path === '/food/info') page = <FoodInfo go={go} />
   else if (path === '/food/plans') page = <FoodServices slug="nutrition-plan" go={go} />
   else if (path === '/food/consult') page = <FoodServices slug="nutrition-consult" go={go} />
-  else if (path === '/muscles') page = <Suspense fallback={<p className="muted empty">{t("جاري التحميل…")}</p>}><MuscleExplorer session={session} go={go} initialGroup={query.get('group')} /></Suspense>
+  else if (path === '/muscles') page = <MuscleExplorer session={session} go={go} initialGroup={query.get('group')} />
   else if (session && path === '/workouts') page = <MemberArea session={session} tab="workouts" />
   else if (session && seg[0] === 'pay' && seg[1] === 'return' && seg[2]) page = <PayReturn bookingId={seg[2]} go={go} />
   else if (session && path === '/bookings') page = <MyBookings go={go} />
@@ -98,7 +104,7 @@ function RootInner() {
   else if (needsLogin) page = null
   else page = <main className="screen market"><div className="page-title"><h1>{t("الصفحة غير موجودة")}</h1></div><button className="primary" onClick={() => go('/')}>{t("الرئيسية")}</button></main>
 
-  const shell = <Shell items={items} path={path} go={go} email={session?.user.email ?? undefined}>{page}</Shell>
+  const shell = <Shell items={items} path={path} go={go} email={session?.user.email ?? undefined}><Wait>{page}</Wait></Shell>
   // VORA: every private screen requires a verified (trusted) device; the server enforces the same rule independently.
-  return VORA_ON && session ? <DeviceGate>{shell}</DeviceGate> : shell
+  return VORA_ON && session ? <Wait><DeviceGate>{shell}</DeviceGate></Wait> : shell
 }

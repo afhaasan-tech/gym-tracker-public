@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
-import { EN } from './en'
-import { EXTRA } from './en-extra'
-const DICT: Record<string, string> = { ...EN, ...EXTRA }
+// The English dictionary is downloaded only when English is in use; Arabic (the default) needs no dictionary.
+let DICT: Record<string, string> = {}
+let enLoad: Promise<void> | null = null
+export const loadEn = (): Promise<void> => enLoad ??= Promise.all([import('./en'), import('./en-extra')]).then(([a, b]) => { DICT = { ...a.EN, ...b.EXTRA } })
 
 /**
  * Arabic-first i18n. The Arabic sentence IS the key: `t('أبي مدرب خاص')` returns it unchanged in Arabic and the
@@ -25,9 +26,12 @@ applyDocument()
 export const getLang = (): Lang => current
 export function setLang(next: Lang) {
   if (next === current) return
-  current = next
-  try { localStorage.setItem(KEY, next) } catch { /* ignore */ }
-  applyDocument(); listeners.forEach((f) => f())
+  const apply = () => {
+    current = next
+    try { localStorage.setItem(KEY, next) } catch { /* ignore */ }
+    applyDocument(); listeners.forEach((f) => f())
+  }
+  if (next === 'en') loadEn().then(apply, () => { enLoad = null }); else apply()
 }
 export const useLang = (): Lang => useSyncExternalStore((cb) => { listeners.add(cb); return () => { listeners.delete(cb) } }, () => current)
 
