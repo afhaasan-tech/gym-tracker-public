@@ -1,11 +1,11 @@
-// Validation of what a MODEL returned for the VORA trainer. Lenient on size (long text is truncated, numbers are clamped, extra keys and
+// Validation of what a MODEL returned for the VORA trainer, plus the shapes of the cards the APPS receive. Lenient on size (long text is truncated, numbers are clamped, extra keys and
 // extra array items are dropped) so a verbose model cannot break the apps; strict on shape (missing card fields, wrong enums) so the
 // apps can render a card without defensive code. Anything that does not validate is treated as a provider failure (nothing is charged).
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'   // zod v3 (URL import: identical in Supabase Edge and in local deno test next to the repo package.json)
 import { cleanOutput } from './sanitize.ts'
 
 export const MUSCLES = ['back', 'chest', 'shoulders', 'biceps', 'triceps', 'forearms', 'hips', 'calf', 'abs'] as const
-export const LOCKABLE = ['nutrition', 'plan'] as const
+export const LOCKABLE = ['nutrition', 'plan', 'library'] as const
 export type Lockable = typeof LOCKABLE[number]
 
 const toText = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : v)
@@ -26,31 +26,59 @@ const softList = <T extends z.ZodTypeAny>(item: T, max: number) =>
   z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())).transform((a) => a.map((x) => item.safeParse(x)).filter((r) => r.success).map((r) => (r as z.SafeParseSuccess<z.infer<T>>).data).slice(0, max))
 const nullish = <T extends z.ZodTypeAny>(s: T) => z.preprocess((v) => (v === undefined ? null : v), s.nullable())
 
-// ---------------------------------------------------------------- one exercise
+// ---------------------------------------------------------------- exercises: what a MODEL may return
+// A model never describes an exercise. It points at a library record by id and may choose sets / reps / rest and add a short note;
+// core.ts resolves the id against the candidates the server offered and builds the card from the library record (library.ts).
+// Deliberately soft: a card or plan exercise the server cannot resolve is DROPPED there, it does not fail the whole answer.
+const exerciseId = z.preprocess((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''), z.string()).transform((s) => (/^[a-z0-9-]{2,60}$/.test(s) ? s : ''))
+const optInt = (min: number, max: number) => int(min, max).nullable().catch(null)
+const asObject = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {})
+export const exerciseRef = z.preprocess(asObject, z.object({
+  exercise_id: exerciseId,                 // '' when missing or malformed (never matches a library record)
+  sets: optInt(1, 10),
+  reps: nullableText(24).catch(null),
+  rest_seconds: optInt(0, 600),
+  note: softText(200),
+}))
+export const planRef = z.preprocess(asObject, z.object({
+  title: softText(100),
+  days: softList(z.object({ day_label: softText(40), focus: softText(80), exercises: softList(exerciseRef, 8) }), 7),
+  notes: softText(600),
+}))
+
+// ---------------------------------------------------------------- exercises: what the APPS receive (built by the server from the library)
 export const workoutCard = z.object({
+  exercise_id: text(60),
+  source: z.literal('library'),
   exercise_name_ar: text(80),
   exercise_name_en: text(80),
-  target_muscle: z.preprocess(lower, z.enum(MUSCLES)),
-  secondary_muscles: softList(z.preprocess(lower, z.enum(MUSCLES)), 4),
-  environment: z.preprocess(lower, z.enum(['gym', 'home'])),
-  equipment: text(80),
-  sets: int(1, 10),
+  target_muscle: z.enum(MUSCLES),
+  secondary_muscles: z.array(z.enum(MUSCLES)),
+  environment: z.enum(['gym', 'home']),
+  equipment: softText(80),
+  difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
+  sets: z.number().int().min(1).max(10),
   reps: text(24),
-  rest_seconds: int(0, 600),
-  posture_cues: softList(text(200), 5).refine((a) => a.length >= 2, 'at least two posture cues'),
-  alternative: z.preprocess((v) => (v === undefined ? null : v), z.object({ name_ar: text(80), reason_ar: text(200) }).nullable()).catch(null),
+  rest_seconds: z.number().int().min(0).max(600),
+  posture_cues: z.array(text(200)),
+  safety: softText(400),
+  alternative: z.object({ name_ar: text(80), reason_ar: text(200) }).nullable(),
+  alternatives: z.array(z.object({ exercise_id: text(60), name_ar: text(80), name_en: text(80) })),
+  note: softText(160),
 })
-
-// ---------------------------------------------------------------- multi-day personalised plan (subscribers only: enforced in core.ts)
-const planExercise = z.object({ name: text(80), sets: int(1, 10), reps: text(24), rest_seconds: int(0, 600) })
+const planExercise = z.object({
+  exercise_id: text(60), source: z.literal('library'), name: text(80), name_ar: text(80), name_en: text(80), target_muscle: z.enum(MUSCLES),
+  sets: z.number().int().min(1).max(10), reps: text(24), rest_seconds: z.number().int().min(0).max(600), note: softText(160),
+})
 const planDay = z.object({
   day_label: text(40),
-  focus: text(80),
-  exercises: list(planExercise, 8).refine((a) => a.length >= 1, 'no exercises'),
+  focus: softText(80),
+  exercises: z.array(planExercise).min(1, 'no exercises').max(8),
 })
+/** multi-day personalised plan (subscribers only: enforced in core.ts) */
 export const workoutPlan = z.object({
   title: text(100),
-  days: list(planDay, 7).refine((a) => a.length >= 1, 'no days'),
+  days: z.array(planDay).min(1, 'no days').max(7),
   notes: softText(600),
 })
 
@@ -83,11 +111,11 @@ export const trainerOutput = z.object({
   voice_script: softText(700),
   off_topic: softBool,
   safety: z.preprocess((v) => (v && typeof v === 'object' ? v : {}), safety),
-  workout_card: nullish(workoutCard),
-  workout_plan: nullish(workoutPlan),
+  workout_card: nullish(exerciseRef),
+  workout_plan: nullish(planRef),
   meal_card: nullish(mealCard),
   /** what the member asked for but the model held back because of the plan (a UI hint only: entitlements are decided in core.ts) */
-  withheld: softList(z.preprocess(lower, z.enum(LOCKABLE)), 2),
+  withheld: softList(z.preprocess(lower, z.enum(LOCKABLE)), 3),
 })
 export type TrainerOutput = z.infer<typeof trainerOutput>
 
@@ -112,15 +140,12 @@ const NS = { type: 'STRING', nullable: true }
 const obj = (properties: Record<string, unknown>, required: string[] = Object.keys(properties), nullable = false) => ({ type: 'OBJECT', properties, required, ...(nullable ? { nullable: true } : {}) })
 const arr = (items: unknown) => ({ type: 'ARRAY', items })
 const G_MACROS = { calories: N, protein_g: N, carbs_g: N, fat_g: N }
+const G_EXERCISE = { exercise_id: S, sets: I, reps: S, rest_seconds: I, note: S }
 export const GEMINI_RESPONSE_SCHEMA = obj({
   chat_reply: S, voice_script: S, off_topic: B,
   safety: obj({ injury_reported: B, injured_area: NS, refused: B, refusal_reason: NS, urgent: B }),
-  workout_card: obj({
-    exercise_name_ar: S, exercise_name_en: S, target_muscle: { type: 'STRING', enum: [...MUSCLES] }, secondary_muscles: arr({ type: 'STRING', enum: [...MUSCLES] }),
-    environment: { type: 'STRING', enum: ['gym', 'home'] }, equipment: S, sets: I, reps: S, rest_seconds: I, posture_cues: arr(S),
-    alternative: obj({ name_ar: S, reason_ar: S }, ['name_ar', 'reason_ar'], true),
-  }, ['exercise_name_ar', 'exercise_name_en', 'target_muscle', 'environment', 'equipment', 'sets', 'reps', 'rest_seconds', 'posture_cues'], true),
-  workout_plan: obj({ title: S, days: arr(obj({ day_label: S, focus: S, exercises: arr(obj({ name: S, sets: I, reps: S, rest_seconds: I })) })), notes: S }, ['title', 'days'], true),
+  workout_card: obj(G_EXERCISE, ['exercise_id'], true),
+  workout_plan: obj({ title: S, days: arr(obj({ day_label: S, focus: S, exercises: arr(obj(G_EXERCISE, ['exercise_id'])) })), notes: S }, ['title', 'days'], true),
   meal_card: obj({
     meal_name_ar: S, meal_name_en: S, servings: I, prep_minutes: I, cook_minutes: I, localized_for: NS,
     macros_per_serving: obj(G_MACROS), macros_with_substitutes: obj(G_MACROS, Object.keys(G_MACROS), true),

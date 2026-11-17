@@ -140,7 +140,7 @@ select t_ok($$select owner_set_ai_budget(true, 5000000, 50000)$$,'budget gate: l
 select t_ok($$select owner_set_flag('live_ai_enabled', true)$$,'live_ai flag now allowed (high risk, step-up ok)');
 select t_ok($$select owner_set_flag('ai_coach_enabled', true)$$,'ordinary flag');
 select t_ok($$select owner_upsert_plan('vip','VIP','VIP',41.5,null,'{"daily_quick":250}'::jsonb,true,true,4)$$,'plan price and fair-use limits are configurable');
-select t_count($$select 1 where (public_plans() -> 3 ->> 'provisional')::boolean$$,1,'plans remain flagged provisional');
+select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e->>'key' = 'vip' and (e->>'provisional')::boolean$$,1,'plans remain flagged provisional');
 select t_ok($$select owner_set_ai_budget(false, 0, 0)$$,'budget gate switched off again');
 select t_ok($$select owner_set_flag('live_ai_enabled', false)$$,'live flag off');
 select t_count($$select 1 where (owner_ai_usage_summary(30) ? 'provider_cost_usd') and not (owner_ai_usage_summary(30)::text like '%request%')$$,1,'usage summary is aggregate only (no message content)');
@@ -173,4 +173,6 @@ select t_count($$select 1 from credit_ledger$$,0,'untrusted session sees no ledg
 select t_err($$select my_credit_balance()$$,'untrusted session cannot read the balance');
 select t_count($$select 1 from ai_jobs$$,0,'untrusted session sees no AI conversations');
 select t_su();
+-- leave the catalogue as the migrations define it (this suite re-enabled the old vip plan through owner_upsert_plan)
+select t_su(); update plans set enabled = false where key in ('essential','pro','elite','vip');
 select 'PASS '||label from t_results where ok union all select 'FAIL '||label from t_results where not ok union all select 'TOTAL pass='||count(*) filter (where ok)||' fail='||count(*) filter (where not ok) from t_results;

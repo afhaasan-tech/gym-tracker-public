@@ -50,6 +50,8 @@ Deno.serve(async (req) => {
     async access(userId) { const { data, error } = await db.rpc('trainer_access', { p_user: userId }); if (error || !data || typeof data.tier !== 'string') throw new Error('access_unavailable'); return data as Access },
     async trialConsume(userId, conversationId) { const { data, error } = await db.rpc('trainer_trial_consume', { p_user: userId, p_conversation: conversationId }); if (error || !data) throw new Error('trial_unavailable'); return data as TrialResult },
     async trialRefund(userId) { await db.rpc('trainer_trial_refund', { p_user: userId }) },
+    // the exercise library is readable by no client role: the candidates come from a service-role function (compact records only)
+    async libraryCandidates(muscles, environment, limit) { const { data, error } = await db.rpc('library_candidates', { p_muscles: muscles.length ? muscles : null, p_environment: environment, p_limit: limit }); if (error) throw new Error('library_unavailable'); return data },
   }
   if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return json(413, { error: 'attachment_too_large' })
   const body = await req.json().catch(() => null)

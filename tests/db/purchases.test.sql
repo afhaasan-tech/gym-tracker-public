@@ -32,6 +32,12 @@ do $$ declare r record; begin
   for r in select p.oid::regprocedure x from pg_proc p where p.proname like 't\_%' and p.pronamespace = 'public'::regnamespace loop execute 'grant execute on function ' || r.x || ' to public'; end loop;
 end $$;
 
+-- 20261121 replaced the catalogue (plans monthly / yearly, packs starter / plus / value) and switched the original rows off. This suite
+-- tests the purchase MECHANICS with the original rows (their prices and credits), so it puts them back on sale in the scratch database
+-- first (and the new packs off, so the pack counts below are the original three). Both are undone at the end of this file.
+-- The new catalogue itself is covered by catalogue-as-migrated.test.sql and exercise-library.test.sql.
+select t_su(); update plans set enabled = true where key in ('essential','pro','elite','vip'); update coin_packs set enabled = (key in ('coins_500','coins_1200','coins_3000'));
+
 -- users: 1 = buyer (trusted session s1), 2 = another member (trusted session s2), 3 = unverified e-mail, 4 = subscription buyer, 5 = second subscription buyer
 select t_su();
 insert into auth.users(id,email,email_confirmed_at) values
@@ -62,7 +68,7 @@ select t_owner(false, 'aal1');
 select t_code($$select owner_upsert_coin_pack('coins_500','٥٠٠ عملة','500 Coins',500,0.600,true,1)$$,'42501','owner without MFA (aal1) is refused');
 select t_owner(false);
 select t_code($$select owner_upsert_coin_pack('coins_500','٥٠٠ عملة','500 Coins',500,0.600,true,1)$$,'PO001','owner with MFA but no RECENT verification is refused (step-up PO001)');
-select t_count($$select 1 from jsonb_array_elements(owner_list_coin_packs())$$,3,'owner reads the packs without step-up (read only)');
+select t_count($$select 1 from jsonb_array_elements(owner_list_coin_packs())$$,6,'owner reads ALL packs, disabled ones included, without step-up (read only)');
 select t_su(); select t_count($$select 1 from coin_packs where key='coins_500' and price_kwd=0.500$$,1,'price unchanged after the refused edits');
 select t_owner(true);
 select t_code($$select owner_upsert_coin_pack('coins_500','٥٠٠ عملة','500 Coins',500,0,true,1)$$,'22023','zero price rejected');
@@ -294,4 +300,6 @@ select t_count($$select 1 where (select count(*) from purchase_events) >= 20$$,1
 select t_err($$update purchase_orders set status='paid', paid_at=now() where status='pending'$$,'owner cannot mark orders paid by hand');
 select t_err($$delete from purchase_events$$,'owner cannot delete purchase events');
 select t_su();
+-- leave the catalogue as the migrations define it (see the note at the top)
+select t_su(); update plans set enabled = false where key in ('essential','pro','elite','vip'); update coin_packs set enabled = (key in ('starter','plus','value'));
 select 'PASS '||label from t_results where ok union all select 'FAIL '||label from t_results where not ok union all select 'TOTAL pass='||count(*) filter (where ok)||' fail='||count(*) filter (where not ok) from t_results;

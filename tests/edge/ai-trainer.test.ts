@@ -1,9 +1,10 @@
 // deno test --allow-all tests/edge/ai-trainer.test.ts : the ONE AI trainer, orchestrated with in-memory fakes (no network, no database, no keys).
-import { type Access, CreditError, type Deps, handleTrainer, type Job, MEDIA_RULES, OPERATION, parseInput } from '../../supabase/functions/ai-trainer/core.ts'
+import { type Access, CreditError, type Deps, handleTrainer, type Job, MEDIA_RULES, OPERATION, parseInput, SHORT_MAX_OUTPUT_TOKENS, SHORT_REPLY_MAX_CHARS } from '../../supabase/functions/ai-trainer/core.ts'
+import { inferMuscles, parseCandidates, shorten, wantsPlan } from '../../supabase/functions/ai-trainer/library.ts'
 import { anthropicProvider, canHandle, CAPABILITIES, costMicro, estimateMicro, geminiProvider, mockProvider, type Provider, type ProviderRequest } from '../../supabase/functions/ai-trainer/providers.ts'
 import { REDIRECT, systemPrompt, userEnvelope } from '../../supabase/functions/ai-trainer/prompts.ts'
 import { clean, detectInjection, medicalCheck, urgentCheck } from '../../supabase/functions/ai-trainer/sanitize.ts'
-import { mealCard, trainerOutput, validateOutput, workoutCard, workoutPlan } from '../../supabase/functions/ai-trainer/schemas.ts'
+import { exerciseRef, mealCard, trainerOutput, validateOutput, workoutCard, workoutPlan } from '../../supabase/functions/ai-trainer/schemas.ts'
 
 const eq = (a: unknown, b: unknown, m: string) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`) }
 const ok = (c: unknown, m: string) => { if (!c) throw new Error(m) }
@@ -13,12 +14,30 @@ const ROUTES: Record<string, Record<string, unknown>> = {
   trainer_audio: { provider: 'gemini', model: 'gemini-2.5-flash' }, trainer_video: { provider: 'gemini', model: 'gemini-2.5-flash' },
 }
 const CONV = 'c0000000-0000-4000-8000-000000000001', CONV2 = 'c0000000-0000-4000-8000-000000000002'
+// The exercise library as library_candidates() returns it (compact records). The fake below filters like the database does.
+const lib = (id: string, name_ar: string, name_en: string, primary_muscle: string, environments: string[], o: Record<string, unknown> = {}) => ({
+  id, name_ar, name_en, primary_muscle, secondary_muscles: [], equipment_ar: 'دمبل', equipment_en: 'Dumbbells', difficulty: 'beginner', environments,
+  default_sets: 3, default_reps: '8-12', rest_seconds: 90, cues_ar: ['شد بطنك', 'انزل ببطء'], cues_en: ['Brace your core', 'Lower slowly'], safety_ar: 'وقّف إذا حسّيت بألم', safety_en: 'Stop if you feel pain', alternatives: [], ...o,
+})
+const LIB = [
+  lib('bench-press', 'ضغط صدر بالبار', 'Barbell Bench Press', 'chest', ['gym'], { secondary_muscles: ['triceps', 'shoulders'], equipment_ar: 'بار وبنش', equipment_en: 'Barbell and bench', difficulty: 'intermediate', default_sets: 4, default_reps: '6-10', rest_seconds: 120,
+    cues_ar: ['شد لوحي الكتف', 'ثبّت قدمك بالأرض', 'نزّل البار بتحكم'], cues_en: ['Pin your shoulder blades', 'Plant your feet', 'Lower the bar under control'], safety_ar: 'استخدم مساعد بالأوزان الثقيلة', safety_en: 'Use a spotter for heavy sets',
+    alternatives: [{ id: 'push-up', name_ar: 'ضغط أرضي', name_en: 'Push-up' }] }),
+  lib('push-up', 'ضغط أرضي', 'Push-up', 'chest', ['home', 'gym'], { equipment_ar: 'وزن الجسم', equipment_en: 'Bodyweight' }),
+  lib('lat-pulldown', 'سحب عالي', 'Lat Pulldown', 'back', ['gym']),
+  lib('dumbbell-row', 'سحب بالدمبل', 'Dumbbell Row', 'back', ['gym', 'home']),
+  lib('shoulder-press', 'ضغط أكتاف', 'Shoulder Press', 'shoulders', ['gym', 'home']),
+  lib('goblet-squat', 'سكوات بالدمبل', 'Goblet Squat', 'hips', ['gym', 'home']),
+  lib('plank', 'بلانك', 'Plank', 'abs', ['gym', 'home'], { default_reps: '30 s' }),
+  lib('biceps-curl', 'تبادل دمبل', 'Biceps Curl', 'biceps', ['gym', 'home']),
+]
+const LIB_IDS = LIB.map((e) => e.id), byId = (id: string) => LIB.find((e) => e.id === id)!
 type Tier = 'subscriber' | 'coins' | 'trial' | 'none'
-type Opts = { tier?: Tier; nutrition?: boolean; balance?: number; mode?: 'mock' | 'live'; provider?: Provider; budget?: boolean; trusted?: boolean; route?: Record<string, unknown>; configured?: string[]; trialMax?: number; accessFails?: boolean }
+type Opts = { tier?: Tier; nutrition?: boolean; balance?: number; mode?: 'mock' | 'live'; provider?: Provider; budget?: boolean; trusted?: boolean; route?: Record<string, unknown>; configured?: string[]; trialMax?: number; accessFails?: boolean; library?: unknown; libraryFails?: boolean }
 function world(over: Partial<Deps> = {}, opts: Opts = {}) {
   const s = {
     balance: opts.balance ?? 2500, jobs: new Map<string, Job & Record<string, unknown>>(), reservations: new Map<string, { credits: number; status: string }>(), calls: 0, called: [] as string[], reqs: [] as ProviderRequest[],
-    rate: [] as string[], budgetAuth: 0, budgetSettle: [] as number[][], touched: 0, trial: { conv: null as string | null, used: 0, max: opts.trialMax ?? 10 }, consumeCalls: 0, refunds: 0, accessCalls: 0,
+    rate: [] as string[], budgetAuth: 0, budgetSettle: [] as number[][], touched: 0, trial: { conv: null as string | null, used: 0, max: opts.trialMax ?? 10 }, consumeCalls: 0, refunds: 0, accessCalls: 0, libCalls: [] as Array<[string[], string, number]>,
   }
   const prov: Provider = opts.provider ?? mockProvider
   const configured = opts.configured ?? ['mock', 'anthropic', 'gemini']
@@ -57,6 +76,12 @@ function world(over: Partial<Deps> = {}, opts: Opts = {}) {
       s.trial.used++; return Promise.resolve({ allowed: true, remaining: s.trial.max - s.trial.used })
     },
     trialRefund: () => { s.refunds++; if (s.trial.used > 0) s.trial.used--; return Promise.resolve() },
+    libraryCandidates: (muscles, environment, limit) => {
+      s.libCalls.push([muscles, environment, limit])
+      if (opts.libraryFails) return Promise.reject(new Error('db down'))
+      if (opts.library !== undefined) return Promise.resolve(opts.library)
+      return Promise.resolve(LIB.filter((e) => e.environments.includes(environment) && (!muscles.length || muscles.includes(e.primary_muscle))).slice(0, limit))
+    },
     ...over,
   }
   return { s, d }
@@ -75,8 +100,9 @@ const img = (data = PNG, mime = 'image/png') => [{ kind: 'image', mime_type: mim
 const aud = (mime = 'audio/mpeg') => [{ kind: 'audio', mime_type: mime, data_base64: BLOB }]
 const vid = (mime = 'video/mp4') => [{ kind: 'video', mime_type: mime, data_base64: BLOB }]
 const VALID = (o: Record<string, unknown> = {}) => JSON.stringify({ chat_reply: 'تمام', voice_script: 'تمام', off_topic: false, safety: { injury_reported: false, injured_area: null, refused: false, refusal_reason: null, urgent: false }, workout_card: null, workout_plan: null, meal_card: null, ...o })
-const mockOut = async (message: string, o: Record<string, unknown> = {}) => JSON.parse((await mockProvider.call({ system: '', user: '', model: 'mock-model', maxTokens: 1, signal: new AbortController().signal, meta: { message, language: 'ar', environment: 'gym', attachmentKind: null, ...o } as never })).text)
-const RESPONSE_KEYS = ['access', 'chat_reply', 'conversation_id', 'credits_charged', 'locked', 'meal_card', 'media', 'mock', 'off_topic', 'replay', 'request_id', 'safety', 'voice_script', 'workout_card', 'workout_plan']
+const mockOut = async (message: string, o: Record<string, unknown> = {}) => JSON.parse((await mockProvider.call({ system: '', user: '', model: 'mock-model', maxTokens: 1, signal: new AbortController().signal, meta: { message, language: 'ar', environment: 'gym', attachmentKind: null, tier: 'subscriber', candidates: parseCandidates(LIB), ...o } as never })).text)
+const RESPONSE_KEYS = ['access', 'chat_reply', 'conversation_id', 'credits_charged', 'locked', 'meal_card', 'media', 'mock', 'off_topic', 'replay', 'request_id', 'safety', 'upgrade', 'voice_script', 'workout_card', 'workout_plan']
+const REF = (id: string, o: Record<string, unknown> = {}) => ({ exercise_id: id, sets: 3, reps: '8-12', rest_seconds: 90, note: '', ...o })
 
 // ================================================================= order of the gates
 Deno.test('untrusted session => 403 device_not_trusted before anything else (invalid input, injection, every tier)', async () => {
@@ -118,7 +144,7 @@ Deno.test('trial: no confirmation and no credits; each answer consumes exactly o
   const r = await handleTrainer(d, 'u1', req({ confirm_credits: undefined })); eq(r.status, 200, 'no confirmation needed')
   const b = r.body as B
   eq([b.credits_charged, b.mock, b.replay, b.conversation_id], [0, true, false, CONV], 'free'); eq(b.access, { tier: 'trial', nutrition: false, trial_remaining: 9 }, 'access block')
-  eq(Object.keys(b).sort(), RESPONSE_KEYS, 'response shape'); workoutCard.parse(b.workout_card); ok(b.chat_reply.startsWith('[MOCK]'), 'mock label')
+  eq(Object.keys(b).sort(), RESPONSE_KEYS, 'response shape'); eq([b.workout_card, b.workout_plan, b.meal_card], [null, null, null], 'the trial never gets a card'); ok(b.chat_reply.startsWith('[MOCK]'), 'mock label')
   eq([s.trial.used, s.consumeCalls, s.reservations.size, s.balance, s.refunds], [1, 1, 0, 0, 0], 'one message, wallet untouched')
   const job = [...s.jobs.values()][0]; eq([job.status, job.tier, job.conversationId, job.operation_key], ['done', 'trial', CONV, 'trainer_message'], 'job recorded as a trial job')
   eq((await handleTrainer(d, 'u1', req({ confirm_credits: 12345 }))).status, 200, 'confirm_credits is ignored on the trial'); eq(s.trial.used, 2, 'second message')
@@ -173,7 +199,7 @@ Deno.test('subscriber: insufficient credits => 402; provider failure => release;
   eq(await handleTrainer(w.d, 'u1', req()), { status: 402, body: { error: 'insufficient_credits', credits: 50 } }, 'insufficient'); eq([w.s.calls, w.s.jobs.size], [0, 0], 'no provider')
   w = world({}, { provider: { name: 'x', call: () => Promise.reject(new Error('boom')) } })
   eq(await handleTrainer(w.d, 'u1', req()), { status: 503, body: { error: 'provider_unavailable' } }, 'failure'); eq([w.s.balance, [...w.s.reservations.values()][0].status], [2500, 'released'], 'released')
-  for (const text of ['sorry, no json', '{"chat_reply": ""}', VALID({ workout_card: { exercise_name_ar: 'x' } }), VALID({ workout_plan: { title: 'p', days: [] } }), VALID({ meal_card: { meal_name_ar: 'x' } })]) {
+  for (const text of ['sorry, no json', '{"chat_reply": ""}', VALID({ meal_card: { meal_name_ar: 'x' } })]) {
     w = world({}, { provider: fixed(text) })
     eq(await handleTrainer(w.d, 'u1', req()), { status: 503, body: { error: 'provider_unavailable' } }, 'invalid output: ' + text.slice(0, 30))
     eq([w.s.balance, [...w.s.reservations.values()][0].status, [...w.s.jobs.values()][0].status, [...w.s.jobs.values()][0].error_code], [2500, 'released', 'failed', 'invalid_output'], 'released, job failed')
@@ -213,9 +239,11 @@ Deno.test('workout_plan: subscribers only; stripped + locked:["plan"] for the tr
   let w = world(); let b = (await handleTrainer(w.d, 'u1', req({ message: 'أبي خطة تمارين' }))).body as B
   workoutPlan.parse(b.workout_plan); eq([b.locked, b.workout_plan.days.length], [[], 3], 'subscriber gets the plan')
   w = world({}, { tier: 'trial' }); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a weekly plan', language: 'en' }))).body as B
-  eq([b.workout_plan, b.locked, b.workout_card], [null, ['plan'], null], 'trial: plan stripped'); ok(/subscription/i.test(b.chat_reply), 'upgrade note')
-  w = world({}, { tier: 'trial' }); b = (await handleTrainer(w.d, 'u1', req({ message: 'عطني تمرين ظهر' }))).body as B
-  eq([b.locked, b.workout_card.target_muscle], [[], 'back'], 'trial still gets single exercises')
+  eq([b.workout_plan, b.locked, b.workout_card, b.upgrade], [null, ['plan'], null, { reason: 'plan' }], 'trial: no plan; the app is told what to offer'); ok(/twice a week/.test(b.chat_reply) && !/subscri|upgrade|price/i.test(b.chat_reply), 'a short useful general answer, no sales text from the model')
+  // a live model that ignores the prompt and writes a plan for a trial member is stripped; the server's own note replaces the text
+  w = world({}, { tier: 'trial', mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: 'Day 1: bench press 5x5', workout_plan: { title: 'p', days: [{ day_label: 'D1', focus: 'f', exercises: [REF('bench-press')] }] } })) })
+  b = (await handleTrainer(w.d, 'u1', req({ language: 'en' }))).body as B
+  eq([b.workout_plan, b.locked, b.upgrade], [null, ['plan'], { reason: 'plan' }], 'live: plan stripped'); ok(/subscription/i.test(b.chat_reply) && !/5x5/.test(b.chat_reply), 'reply replaced by the server note')
   // the model obeyed the prompt (nothing produced) and reported what it held back
   w = world({}, { tier: 'trial', mode: 'live', budget: true, provider: fixed(VALID({ withheld: ['plan', 'nutrition', 'bogus'] })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
   eq([b.locked, b.chat_reply], [['plan', 'nutrition'], 'تمام'], 'hints become locked; reply kept')
@@ -236,7 +264,7 @@ Deno.test('off-topic => one short redirect, no cards; urgent safety is NOT redir
     eq([b.safety.urgent, b.off_topic, b.workout_card], [true, false, null], message); ok(!b.chat_reply.includes(REDIRECT[language]), 'not a redirect'); ok(/112/.test(b.chat_reply), 'emergency guidance')
   }
   // a model that marks an emergency as off-topic and attaches a card is corrected by the server
-  const card = JSON.parse((await mockProvider.call({ system: '', user: '', model: 'm', maxTokens: 1, signal: new AbortController().signal, meta: { message: 'exercise', language: 'en', environment: 'gym', attachmentKind: null } })).text).workout_card
+  const card = REF('bench-press')
   let w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ off_topic: true, safety: { urgent: true }, workout_card: card })) }); let b = (await handleTrainer(w.d, 'u1', req())).body as B
   eq([b.off_topic, b.safety.urgent, b.workout_card], [false, true, null], 'urgent wins over off_topic; no cards')
   w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ off_topic: true, workout_card: card })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
@@ -451,10 +479,14 @@ Deno.test('mock keyword rules produce schema-valid output for every card type', 
 })
 
 Deno.test('schemas: lenient clamping/truncation, strict shape', () => {
-  const v = validateOutput('```json\n' + VALID({ chat_reply: 'x'.repeat(5000) + '<b>', safety: 'nope', off_topic: 'true', workout_plan: { title: 't', notes: 7, days: Array(9).fill({ day_label: 'D', focus: 'F', exercises: Array(12).fill({ name: 'Squat', sets: '99', reps: 10, rest_seconds: 99999 }) }) } }) + '\n```')
+  const v = validateOutput('```json\n' + VALID({ chat_reply: 'x'.repeat(5000) + '<b>', safety: 'nope', off_topic: 'true', workout_plan: { title: 't', notes: 7, days: Array(9).fill({ day_label: 'D', focus: 'F', exercises: Array(12).fill({ exercise_id: 'goblet-squat', sets: '99', reps: 10, rest_seconds: 99999 }) }) } }) + '\n```')
   ok(v.ok, 'valid'); if (!v.ok) return
   eq([v.data.chat_reply.length, v.data.off_topic, v.data.safety.urgent, v.data.withheld], [2000, true, false, []], 'truncated, coerced, defaults')
-  eq([v.data.workout_plan!.days.length, v.data.workout_plan!.days[0].exercises.length, v.data.workout_plan!.days[0].exercises[0]], [7, 8, { name: 'Squat', sets: 10, reps: '10', rest_seconds: 600 }], 'plan clamped to 7 days x 8 exercises')
+  eq([v.data.workout_plan!.days.length, v.data.workout_plan!.days[0].exercises.length, v.data.workout_plan!.days[0].exercises[0]], [7, 8, { exercise_id: 'goblet-squat', sets: 10, reps: '10', rest_seconds: 600, note: '' }], 'plan clamped to 7 days x 8 exercises')
+  // what a model may say about an exercise: an id and optional volume. Anything else is ignored; a missing / malformed id becomes '' (never a library id)
+  eq(exerciseRef.parse({ exercise_id: ' Bench-Press ', sets: '4', exercise_name_en: 'Invented', posture_cues: ['x'] }), { exercise_id: 'bench-press', sets: 4, reps: null, rest_seconds: null, note: '' }, 'reference only: id + volume')
+  eq([exerciseRef.parse({ exercise_name_ar: 'x' }).exercise_id, exerciseRef.parse({ exercise_id: 'Bench Press!' }).exercise_id, exerciseRef.parse('bench-press').exercise_id, exerciseRef.parse({ exercise_id: 7 }).exercise_id], ['', '', '', ''], 'no usable id => empty')
+  // the shapes the APPS receive stay strict
   eq(workoutPlan.safeParse({ title: 't', days: [{ day_label: 'D', focus: 'F', exercises: [] }], notes: '' }).success, false, 'a day needs at least one exercise')
   eq(workoutPlan.safeParse({ title: 't', days: [], notes: '' }).success, false, 'a plan needs at least one day')
   eq(validateOutput('[]').ok || validateOutput('').ok || validateOutput('{"voice_script":"x"}').ok, false, 'garbage rejected')
@@ -476,4 +508,171 @@ Deno.test('coins tier: confirms the exact cost, charges it, and gets no plan and
   eq([b.workout_plan, b.locked], [null, ['plan']], 'no personalised plan for coin-only members')
   w = world({ settle: () => Promise.reject(new Error('x')) }, { tier: 'coins', provider: { name: 'mock', call: () => Promise.reject(new Error('down')) } })
   r = await handleTrainer(w.d, 'u1', req()); eq(w.s.balance, 2500, 'provider failure releases the reservation')
+})
+
+// ================================================================= exercise library (subscribers) / short answers (trial, coins)
+Deno.test('subscriber: workout_card is BUILT FROM THE LIBRARY RECORD; the model only picks the id and the volume (within clamps)', async () => {
+  // mock, Arabic, gym: the server asked the library for chest exercises at the gym and the card is the library record
+  let w = world(); let b = (await handleTrainer(w.d, 'u1', req())).body as B
+  eq(w.s.libCalls, [[['chest'], 'gym', 12]], 'candidates fetched by the server: muscle inferred from the message, the member\'s environment')
+  const rec = byId('bench-press'); workoutCard.parse(b.workout_card)
+  eq(b.workout_card, {
+    exercise_id: 'bench-press', source: 'library', exercise_name_ar: rec.name_ar, exercise_name_en: rec.name_en, target_muscle: 'chest', secondary_muscles: ['triceps', 'shoulders'], environment: 'gym', equipment: 'بار وبنش', difficulty: 'intermediate',
+    sets: 4, reps: '6-10', rest_seconds: 120, posture_cues: rec.cues_ar, safety: rec.safety_ar, alternative: { name_ar: 'ضغط أرضي', reason_ar: 'بديل من مكتبة VORA لنفس العضلة' }, alternatives: [{ exercise_id: 'push-up', name_ar: 'ضغط أرضي', name_en: 'Push-up' }], note: '',
+  }, 'every field of the card comes from the library record')
+  eq([b.locked, b.upgrade, b.credits_charged, b.access.tier], [[], null, 50, 'subscriber'], 'no lock, no upgrade hint, charged')
+  const sys = w.s.reqs[0].system
+  ok(sys.includes('EXERCISE LIBRARY RULE') && sys.includes('bench-press | Barbell Bench Press | ضغط صدر بالبار | chest') && sys.includes('push-up | Push-up'), 'the candidates are in the prompt as the only allowed exercises')
+  ok(!sys.includes('lat-pulldown') && !sys.includes('goblet-squat'), 'exercises for other muscles are not offered'); eq(w.s.reqs[0].maxTokens, 3000, 'subscribers keep the routed output budget')
+  eq(w.s.reqs[0].meta.candidates?.map((c) => c.id), ['bench-press', 'push-up'], 'the mock is given the same candidates')
+  // English + home: language-specific fields, and only home exercises are candidates
+  w = world(); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a chest exercise', language: 'en', environment: 'home' }))).body as B
+  eq([w.s.libCalls[0], b.workout_card.exercise_id, b.workout_card.environment, b.workout_card.equipment, b.workout_card.posture_cues, b.workout_card.safety], [[['chest'], 'home', 12], 'push-up', 'home', 'Bodyweight', ['Brace your core', 'Lower slowly'], 'Stop if you feel pain'], 'home: the bodyweight exercise, in English')
+  ok(!w.s.reqs[0].system.includes('bench-press'), 'a gym-only exercise is not offered at home')
+  // a live model: whatever else it writes into the card is ignored; sets / reps / rest are clamped or fall back to the library defaults
+  const evil = { exercise_id: 'bench-press', sets: 99, reps: 'as many as you can until total failure!!', rest_seconds: 2, note: 'Keep it light this week.', exercise_name_en: 'Evil Invented Press', exercise_name_ar: 'تمرين مخترع', target_muscle: 'abs', posture_cues: ['bounce the bar off your chest'], safety: 'none needed', equipment: 'trampoline' }
+  w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ workout_card: evil })) }); b = (await handleTrainer(w.d, 'u1', req({ language: 'en' }))).body as B
+  eq([b.workout_card.exercise_name_en, b.workout_card.target_muscle, b.workout_card.posture_cues, b.workout_card.safety, b.workout_card.equipment], [rec.name_en, 'chest', rec.cues_en, rec.safety_en, 'Barbell and bench'], 'names, muscle, cues, safety and equipment are the library\'s')
+  eq([b.workout_card.sets, b.workout_card.reps, b.workout_card.rest_seconds, b.workout_card.note, b.mock, b.credits_charged], [6, '6-10', 15, 'Keep it light this week.', false, 50], 'sets clamped, free-text reps replaced by the default, rest clamped, short note kept')
+  ok(!/Evil|مخترع|trampoline|bounce/.test(JSON.stringify(b)), 'nothing the model invented reaches the app')
+  w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ workout_card: { exercise_id: 'push-up' } })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
+  eq([b.workout_card.exercise_id, b.workout_card.sets, b.workout_card.reps, b.workout_card.rest_seconds], ['push-up', 3, '8-12', 90], 'an id alone: the library defaults')
+  // muscle taken from the recent history when the message itself names none; a balanced set when nothing names one
+  w = world(); await handleTrainer(w.d, 'u1', req({ message: 'عطني بديل', history: [{ role: 'user', text: 'أبي تمرين ظهر' }, { role: 'assistant', text: 'تمام' }] })); eq(w.s.libCalls[0], [['back'], 'gym', 12], 'history')
+  w = world(); await handleTrainer(w.d, 'u1', req({ message: 'شلون أنام أحسن؟' })); eq(w.s.libCalls[0], [[], 'gym', 12], 'no muscle named => balanced set')
+  w = world(); await handleTrainer(w.d, 'u1', req({ message: 'أبي خطة تمارين' })); eq(w.s.libCalls[0], [[], 'gym', 24], 'a plan request gets a wider set')
+})
+
+Deno.test('subscriber: an invented / unknown exercise id is DROPPED (card null, plain reply, nothing charged); empty library => no card', async () => {
+  for (const [card, label] of [[{ exercise_id: 'dragon-flag-press', sets: 3 }, 'invented id'], [{ exercise_name_ar: 'تمرين التنين', exercise_name_en: 'Dragon Press', target_muscle: 'chest', sets: 3 }, 'old free-form card without an id'], [{ exercise_id: 'lat-pulldown' }, 'a real exercise that was NOT a candidate for this request'], [{ exercise_id: 'BENCH PRESS' }, 'a name instead of an id']] as const) {
+    const w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: 'Try the Dragon Press, it is great', voice_script: 'Try the Dragon Press', workout_card: card })) })
+    const r = await handleTrainer(w.d, 'u1', req({ language: 'en' })); const b = r.body as B
+    eq([r.status, b.workout_card, b.workout_plan, b.locked, b.upgrade], [200, null, null, [], null], label + ': dropped')
+    ok(/VORA library/.test(b.chat_reply) && !/Dragon/.test(JSON.stringify(b)), 'the reply says so plainly and nothing invented is shown')
+    eq([b.credits_charged, w.s.balance, [...w.s.reservations.values()][0].status], [0, 2500, 'released'], 'not charged'); ok(!String([...w.s.jobs.values()][0].response_text).includes('Dragon'), 'nor stored')
+  }
+  // the library has nothing for this request: the model is told so, the mock produces no card and says it plainly
+  let w = world({}, { library: [] }); let b = (await handleTrainer(w.d, 'u1', req({ language: 'en' }))).body as B
+  eq([b.workout_card, w.s.calls], [null, 1], 'no card'); ok(/no matching exercise in the VORA library/.test(b.chat_reply), 'plain reply'); ok(w.s.reqs[0].system.includes('there is NO exercise available') && !w.s.reqs[0].system.includes('VORA LIBRARY (id'), 'prompt: nothing to choose from')
+  w = world({}, { library: [], mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: 'Do burpees', workout_card: { exercise_id: 'burpee' } })) }); b = (await handleTrainer(w.d, 'u1', req({ language: 'en' }))).body as B
+  eq([b.workout_card, b.credits_charged], [null, 0], 'empty library + a model that answers anyway: dropped'); ok(!/burpee/i.test(b.chat_reply), 'reply replaced')
+  // malformed rows from the database are ignored rather than trusted
+  w = world({}, { library: [{ id: 'Bad Id', name_ar: 'x', name_en: 'x', primary_muscle: 'chest', environments: ['gym'], default_sets: 3, default_reps: '10', rest_seconds: 60, difficulty: 'beginner' }, { id: 'no-names' }, null, 'x', { ...LIB[1], primary_muscle: 'neck' }, LIB[1], LIB[1]] })
+  await handleTrainer(w.d, 'u1', req()); eq(w.s.reqs[0].meta.candidates?.map((c) => c.id), ['push-up'], 'only well-formed, unique records become candidates')
+  w = world({}, { library: 'nonsense' }); b = (await handleTrainer(w.d, 'u1', req())).body as B; eq(b.workout_card, null, 'a non-array answer = no candidates')
+  // the library cannot be read: fail closed, nothing kept
+  w = world({}, { libraryFails: true })
+  eq(await handleTrainer(w.d, 'u1', req()), { status: 503, body: { error: 'provider_unavailable' } }, 'library lookup failure => 503'); eq([w.s.calls, w.s.balance, [...w.s.jobs.values()][0].error_code], [0, 2500, 'library_unavailable'], 'no provider call, reservation released')
+})
+
+Deno.test('subscriber: every workout_plan exercise comes from the candidates; unknown ones are removed, empty days dropped, nothing left => no plan', async () => {
+  let w = world(); let b = (await handleTrainer(w.d, 'u1', req({ message: 'أبي خطة تمارين' }))).body as B
+  workoutPlan.parse(b.workout_plan); const all = b.workout_plan.days.flatMap((d: B) => d.exercises) as B[]
+  eq([b.workout_plan.days.length, all.length, b.credits_charged], [3, 6, 50], 'mock plan: 3 days x 2 exercises')
+  for (const e of all) { ok(LIB_IDS.includes(e.exercise_id) && e.source === 'library', 'from the library: ' + e.exercise_id); eq([e.name, e.name_ar, e.name_en, e.target_muscle], [byId(e.exercise_id).name_ar, byId(e.exercise_id).name_ar, byId(e.exercise_id).name_en, byId(e.exercise_id).primary_muscle], 'names and muscle from the record') }
+  const candidates = w.s.reqs[0].meta.candidates!.map((c) => c.id); ok(all.every((e) => candidates.includes(e.exercise_id)), 'all inside the candidate list')
+  // live: a mix of real and invented ids
+  const plan = { title: 'My plan', notes: 'n', days: [
+    { day_label: 'Mon', focus: 'push', exercises: [REF('bench-press', { sets: 5 }), REF('invented-one'), { name: 'Free text squat', sets: 3, reps: '10', rest_seconds: 60 }] },
+    { day_label: 'Tue', focus: 'made up', exercises: [REF('invented-two'), REF('also-invented')] },
+    { day_label: '', focus: 'legs', exercises: [REF('goblet-squat', { reps: '12', rest_seconds: 1000 })] },
+  ] }
+  w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ workout_plan: plan })) }); b = (await handleTrainer(w.d, 'u1', req({ message: 'weekly plan please', language: 'en' }))).body as B
+  workoutPlan.parse(b.workout_plan)
+  eq(b.workout_plan.days.map((d: B) => [d.day_label, d.exercises.map((e: B) => e.exercise_id)]), [['Mon', ['bench-press']], ['Day 2', ['goblet-squat']]], 'invented exercises removed; the day with none left is dropped')
+  eq([b.workout_plan.days[0].exercises[0].name, b.workout_plan.days[0].exercises[0].sets, b.workout_plan.days[1].exercises[0].reps, b.workout_plan.days[1].exercises[0].rest_seconds, b.credits_charged], ['Barbell Bench Press', 5, '12', 300, 50], 'library names; volume inside the clamps; charged')
+  ok(!/invented|Free text/i.test(JSON.stringify(b.workout_plan)), 'no invented exercise in the plan')
+  // nothing resolvable at all
+  for (const bad of [{ title: 'p', days: [{ day_label: 'D', focus: 'f', exercises: [REF('nope-1'), REF('nope-2')] }] }, { title: 'p', days: [] }, { title: 'p' }, 'a plan as text']) {
+    w = world({}, { mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: 'Here is your plan with nope-1', workout_plan: bad })) }); const r = await handleTrainer(w.d, 'u1', req({ language: 'en' })); b = r.body as B
+    eq([r.status, b.workout_plan, b.credits_charged, w.s.balance], [200, null, 0, 2500], 'no plan, not charged'); ok(/VORA library/.test(b.chat_reply) && !/nope/.test(b.chat_reply), 'plain reply')
+  }
+})
+
+Deno.test('trial and coins: NO library card, locked contains "library", upgrade is set; no candidates are even fetched', async () => {
+  for (const tier of ['trial', 'coins'] as Tier[]) {
+    // mock
+    let w = world({}, { tier }); let b = (await handleTrainer(w.d, 'u1', req())).body as B
+    eq([b.workout_card, b.workout_plan, b.meal_card, b.locked, b.upgrade], [null, null, null, ['library'], { reason: 'library' }], tier + ': exercise request => no card, locked, upgrade')
+    ok(b.chat_reply.length <= SHORT_REPLY_MAX_CHARS && /٨ إلى ١٢/.test(b.chat_reply) && /الصدر/.test(b.chat_reply), 'a short, correct, useful general answer')
+    eq([w.s.libCalls.length, w.s.reqs[0].meta.candidates, w.s.reqs[0].maxTokens, b.credits_charged], [0, [], SHORT_MAX_OUTPUT_TOKENS, tier === 'coins' ? 50 : 0], 'the library is not read; output capped')
+    const sys = w.s.reqs[0].system
+    ok(sys.includes('SHORT ANSWER MODE') && sys.includes('ONE or TWO short sentences') && sys.includes('never hold back safety information') && sys.includes('Never give wrong') && !sys.includes('VORA LIBRARY') && !sys.includes('bench-press'), 'prompt: short, correct, general; no library content')
+    ok(sys.includes('"workout_card": null, "workout_plan": null, "meal_card": null') && sys.includes('INJURY RULE') && sys.includes('urgent safety'), 'prompt: no cards in the format; the safety rules are all still there')
+    // a live model that ignores the prompt and returns a card
+    w = world({}, { tier, mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: 'Keep your elbows at 45 degrees.', workout_card: REF('bench-press') })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
+    eq([b.workout_card, b.locked, b.upgrade, b.chat_reply], [null, ['library'], { reason: 'library' }, 'Keep your elbows at 45 degrees.'], tier + ' live: card withheld, the useful text is kept')
+    // the model obeyed and only reported the hint
+    w = world({}, { tier, mode: 'live', budget: true, provider: fixed(VALID({ withheld: ['library'] })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
+    eq([b.locked, b.upgrade], [['library'], { reason: 'library' }], 'hint => locked + upgrade')
+    w = world({}, { tier }); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a recipe', language: 'en' }))).body as B; eq([b.locked, b.upgrade], [['nutrition'], { reason: 'nutrition' }], 'nutrition')
+    w = world({}, { tier }); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a weekly plan', language: 'en' }))).body as B; eq([b.locked, b.upgrade], [['plan'], { reason: 'plan' }], 'plan')
+  }
+  // a normal question: the trial may be offered the personalised trainer; a coins member who asked for nothing premium is offered nothing
+  const plain = fixed(VALID({ chat_reply: 'Warm up for five minutes first.' }))
+  let b = (await handleTrainer(world({}, { tier: 'trial', mode: 'live', budget: true, provider: plain }).d, 'u1', req())).body as B; eq([b.locked, b.upgrade], [[], { reason: 'personalised' }], 'trial: personalised')
+  b = (await handleTrainer(world({}, { tier: 'coins', mode: 'live', budget: true, provider: plain }).d, 'u1', req())).body as B; eq([b.locked, b.upgrade], [[], null], 'coins: nothing premium asked => no upgrade')
+  // subscribers never get an upgrade hint or a library lock, whatever the model says
+  b = (await handleTrainer(world({}, { mode: 'live', budget: true, provider: fixed(VALID({ withheld: ['library', 'plan', 'nutrition'] })) }).d, 'u1', req())).body as B; eq([b.locked, b.upgrade], [[], null], 'subscriber: never')
+  b = (await handleTrainer(world({}, { nutrition: false }).d, 'u1', req({ message: 'give me a recipe', language: 'en' }))).body as B; eq([b.locked, b.upgrade], [['nutrition'], null], 'subscriber on a plan without nutrition: locked, but no upgrade push')
+})
+
+Deno.test('short answers: a trial / coins reply that overruns is cut at a sentence end; safety, urgent and off-topic replies are never cut and never carry upgrade', async () => {
+  const long = Array.from({ length: 30 }, (_, i) => `Sentence number ${i + 1} is here.`).join(' '), longAr = Array.from({ length: 30 }, (_, i) => `هذي الجملة رقم ${i + 1} للتجربة؟`).join(' ')
+  ok(long.length > 700 && longAr.length > 700, 'fixtures overrun')
+  for (const tier of ['trial', 'coins'] as Tier[]) {
+    for (const text of [long, longAr]) {
+      const b = (await handleTrainer(world({}, { tier, mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: text, voice_script: text })) }).d, 'u1', req())).body as B
+      ok(b.chat_reply.length <= SHORT_REPLY_MAX_CHARS && b.chat_reply.length > 200 && text.startsWith(b.chat_reply) && /[.؟]$/.test(b.chat_reply), tier + ': cut at a sentence end, never mid-sentence')
+      ok(b.voice_script.length <= SHORT_REPLY_MAX_CHARS && /[.؟]$/.test(b.voice_script), 'the spoken version too')
+    }
+    // the same overrun in a SAFETY answer is delivered in full and without any upgrade hint
+    for (const safety of [{ urgent: true }, { injury_reported: true, injured_area: 'knee' }, { refused: true, refusal_reason: 'unsafe' }]) {
+      const b = (await handleTrainer(world({}, { tier, mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: long, voice_script: long, safety, workout_card: REF('bench-press'), withheld: ['library', 'plan'] })) }).d, 'u1', req())).body as B
+      eq([b.chat_reply, b.voice_script, b.upgrade, b.workout_card], [long, long.slice(0, 700), null, null], tier + ' ' + JSON.stringify(safety) + ': full text (the spoken version keeps only its usual 700-character schema cap), no upgrade')
+    }
+    let b = (await handleTrainer(world({}, { tier }).d, 'u1', req({ message: 'عندي ألم بالصدر' }))).body as B; eq([b.safety.urgent, b.upgrade, b.locked], [true, null, []], 'mock emergency: no upgrade'); ok(/112/.test(b.chat_reply), 'full emergency guidance')
+    b = (await handleTrainer(world({}, { tier }).d, 'u1', req({ message: 'عندي إصابة وأبي تمرين' }))).body as B; eq([b.safety.injury_reported, b.upgrade, b.workout_card], [true, null, null], 'injury: no upgrade')
+    b = (await handleTrainer(world({}, { tier }).d, 'u1', req({ message: 'What is the capital of France?', language: 'en' }))).body as B; eq([b.off_topic, b.upgrade], [true, null], 'off-topic: no upgrade')
+    b = (await handleTrainer(world({}, { tier }).d, 'u1', req({ message: 'كم جرعة التستوستيرون بالأسبوع؟' }))).body as B; eq([b.safety.refused, b.upgrade], [true, null], 'fixed medical refusal: no upgrade')
+  }
+  // subscribers are not shortened
+  const b = (await handleTrainer(world({}, { mode: 'live', budget: true, provider: fixed(VALID({ chat_reply: long })) }).d, 'u1', req())).body as B; eq(b.chat_reply, long, 'subscriber: full answer')
+  const none = (await handleTrainer(world({}, { tier: 'none' }).d, 'u1', req({ message: 'I want to die', language: 'en' }))).body as B; eq([none.safety.urgent, none.upgrade], [true, null], 'no access + emergency: safety answer, no upgrade')
+  // shorten()
+  eq(shorten('Short answer.'), 'Short answer.', 'short text untouched'); eq(shorten('One. Two. Three.', 10), 'One. Two.', 'cut after the last sentence that fits'); eq(shorten('Onelongword and more words here', 16), 'Onelongword and…', 'no sentence end: cut at a word')
+  const words = shorten('word '.repeat(200)); ok(words.length <= SHORT_REPLY_MAX_CHARS + 1 && words.endsWith('…') && !/wor…$/.test(words), 'no sentence end at all: cut at a word, marked with an ellipsis')
+  eq(shorten('A'.repeat(60) + '. ' + 'B'.repeat(400)), 'A'.repeat(60) + '.', 'cut after the last full sentence')
+})
+
+Deno.test('mock picks from the candidates only (deterministic); muscle keywords are bilingual incl. Kuwaiti words', async () => {
+  const a = await mockOut('عطني تمرين ظهر'), b = await mockOut('عطني تمرين ظهر')
+  eq(a, b, 'deterministic'); eq(a.workout_card, { exercise_id: 'lat-pulldown', sets: 3, reps: '8-12', rest_seconds: 90, note: '' }, 'the first back exercise among the candidates, with its defaults')
+  for (const m of ['عطني تمرين صدر', 'a leg exercise', 'تمرين كتف', 'an exercise for my core', 'عطني تمرين']) ok(LIB_IDS.includes((await mockOut(m)).workout_card.exercise_id), m + ' => a library id')
+  eq((await mockOut('a leg exercise', { language: 'en' })).workout_card.exercise_id, 'goblet-squat', 'legs => the hips exercise')
+  const only = parseCandidates([LIB[6]]); eq((await mockOut('عطني تمرين صدر', { candidates: only })).workout_card.exercise_id, 'plank', 'never outside the candidates, even when none matches the muscle')
+  const empty = await mockOut('عطني تمرين صدر', { candidates: [] }); eq(empty.workout_card, null, 'no candidates => no card'); ok(/مكتبة VORA/.test(empty.chat_reply), 'and it says so')
+  const plan = await mockOut('أبي خطة'); ok(plan.workout_plan.days.flatMap((d: B) => d.exercises).every((e: B) => LIB_IDS.includes(e.exercise_id)), 'plan exercises are candidates')
+  eq((await mockOut('أبي خطة', { candidates: [] })).workout_plan, null, 'no candidates => no plan')
+  for (const tier of ['trial', 'coins']) { const o = await mockOut('عطني تمرين صدر', { tier }); eq([o.workout_card, o.withheld], [null, ['library']], tier + ': the mock gives no card'); const p = await mockOut('أبي خطة', { tier }); eq([p.workout_plan, p.withheld], [null, ['plan']], tier + ': no plan') }
+  const cases: Array<[string, string[]]> = [
+    ['عطني تمرين صدر', ['chest']], ['أبي أقوي ظهري', ['back']], ['تمرين حق ريولي', ['hips']], ['أبي أنزل الكرش', ['abs']], ['تمارين جتوف', ['shoulders']], ['ترايسبس وبايسبس', ['biceps', 'triceps']], ['تمرين سمانة', ['calf']], ['أبي أقوي الساعد', ['forearms']],
+    ['my lats and chest', ['back', 'chest']], ['Leg day squats', ['hips']], ['six pack', ['abs']], ['bigger calves', ['calf']], ['grip strength', ['forearms']], ['how do I sleep better', []], ['', []],
+  ]
+  for (const [text, want] of cases) eq(inferMuscles(text), want, 'inferMuscles: ' + text)
+  ok(wantsPlan('أبي خطة') && wantsPlan('برنامج تمارين') && wantsPlan('a 3 day program') && !wantsPlan('explain progressive overload') && !wantsPlan('عطني تمرين'), 'wantsPlan')
+})
+
+Deno.test('trial: bound to the ACCOUNT, not to a device, session or conversation id (a new conversation id cannot restart it)', async () => {
+  const { s, d } = world({}, { tier: 'trial', trialMax: 2 }); const seen: string[][] = []
+  const consume = d.trialConsume; d.trialConsume = (u, c) => { seen.push([u, c]); return consume(u, c) }
+  eq((await handleTrainer(d, 'u1', req())).status, 200, 'first message of the one trial conversation')
+  // "another device": a fresh client state, so a brand-new conversation id and new idempotency keys; the user id comes from the JWT, never from the body
+  for (const conversation_id of [CONV2, 'c0000000-0000-4000-8000-000000000003', 'c0000000-0000-4000-8000-000000000004']) {
+    eq(await handleTrainer(d, 'u1', req({ conversation_id })), { status: 402, body: { error: 'trial_ended', subscription_required: true } }, 'a new conversation id is refused')
+  }
+  eq([s.trial.used, s.calls], [1, 1], 'nothing was consumed and no provider was called'); ok(seen.every(([u]) => u === 'u1'), 'the trial is keyed by the user id')
+  eq((await handleTrainer(d, 'u1', req({ user_id: 'u2' } as never))).status, 400, 'a body cannot name another account (unknown key)')
+  const last = (await handleTrainer(d, 'u1', req())).body as B; eq([last.access.trial_remaining, last.upgrade], [0, { reason: 'library' }], 'the limit is disclosed in access.trial_remaining')
+  eq((await handleTrainer(d, 'u1', req())).status, 402, 'the configured message limit ends it'); eq((await handleTrainer(d, 'u1', req({ conversation_id: CONV2 }))).status, 402, 'and no other conversation id revives it')
 })

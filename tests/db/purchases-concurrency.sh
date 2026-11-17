@@ -6,6 +6,8 @@ ok=0; bad=0; chk() { if [ "$2" = "$3" ]; then echo "PASS $1 [$2]"; ok=$((ok+1));
 T=$(mktemp -d)
 U1=e6000000-0000-4000-8000-000000000001; U2=e6000000-0000-4000-8000-000000000002; U3=e6000000-0000-4000-8000-000000000003; U4=e6000000-0000-4000-8000-000000000004
 $P -c "insert into auth.users(id,email,email_confirmed_at) values ('$U1','r1@race.test',now()),('$U2','r2@race.test',now()),('$U3','r3@race.test',now()),('$U4','r4@race.test',now())" >/dev/null
+# 20261121 switched the original plans / packs off; these races use them (see purchases.test.sql), so they are on sale only while this script runs
+$P -c "update plans set enabled = true where key in ('essential','pro','elite','vip'); update coin_packs set enabled = true where key in ('coins_500','coins_1200','coins_3000')" >/dev/null
 S="set role service_role;"
 mk() { $P -c "$S select purchase_create('$1','$2','$3','$4')->>'id'" | head -1; }
 price() { $P -c "select amount_kwd from purchase_orders where id='$1'"; }
@@ -53,5 +55,6 @@ chk "two orders racing: both periods are added (59-61 days left)" "$($P -c "sele
 chk "two orders racing: credit grants" "$($P -c "select count(*) from credit_ledger where user_id='$U4' and source='subscription'")" 2
 chk "two orders racing: both orders fulfilled" "$($P -c "select count(*) from purchase_orders where user_id='$U4' and status='paid' and fulfilled_at is not null")" 2
 chk "no order anywhere is fulfilled without being paid" "$($P -c "select count(*) from purchase_orders where fulfilled_at is not null and status <> 'paid'")" 0
+$P -c "update plans set enabled = false where key in ('essential','pro','elite','vip'); update coin_packs set enabled = false where key in ('coins_500','coins_1200','coins_3000')" >/dev/null
 rm -rf "$T"
 echo "TOTAL pass=$ok fail=$bad"

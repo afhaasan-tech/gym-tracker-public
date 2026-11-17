@@ -27,6 +27,9 @@ create or replace function t_trust(u uuid, h text, s uuid) returns boolean langu
 do $$ declare r record; begin
   for r in select p.oid::regprocedure x from pg_proc p where p.proname like 't\_%' and p.pronamespace = 'public'::regnamespace loop execute 'grant execute on function ' || r.x || ' to public'; end loop;
 end $$;
+-- 20261121 switched the four original plans off (monthly / yearly replaced them). This suite tests the subscription MECHANICS with those
+-- plans (their credits and nutrition flags), so it puts them back on sale in the scratch database first.
+select t_su(); update plans set enabled = true where key in ('essential','pro','elite','vip');
 select t_su(); select t_u4('d4000000-0000-4000-8000-000000000001'), t_u4('d4000000-0000-4000-8000-000000000002'), t_u4('d4000000-0000-4000-8000-000000000003', false), t_u4('d4000000-0000-4000-8000-000000000004');
 
 -- ================= A. two trusted devices / two active sessions
@@ -325,4 +328,6 @@ select t_ok($$select credit_grant('d4000000-0000-4000-8000-000000000005'::uuid, 
 select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000005'::uuid) @> '{"tier":"coins","nutrition":false,"plan_key":null,"purchased_coins":100}'$$,1,'purchased coins => tier coins, no nutrition, no plan');
 select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000007'::uuid) @> '{"tier":"subscriber"}'$$,1,'subscriber tier is unaffected');
 select t_su(); select t_count($$select 1 from credit_ledger where user_id='d4000000-0000-4000-8000-000000000005' and idempotency_key='coins-test-promo-1' and amount=500$$,1,'promo balance is kept in the ledger (nothing confiscated)');
+-- leave the catalogue as the migrations define it (see the note at the top)
+select t_su(); update plans set enabled = false where key in ('essential','pro','elite','vip');
 select 'PASS '||label from t_results where ok union all select 'FAIL '||label from t_results where not ok union all select 'TOTAL pass='||count(*) filter (where ok)||' fail='||count(*) filter (where not ok) from t_results;

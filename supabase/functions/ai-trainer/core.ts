@@ -2,8 +2,12 @@
 // or a database. Order: trusted session -> validation + sanitising -> deterministic medical refusal -> ACCESS (subscriber | trial | none)
 // -> subscriber: exact-cost confirmation, idempotent replay, atomic credit reservation, charge only after a VALID answer, release on
 //    every failure / trial: no credits, one server-counted message of the single trial conversation, refunded on failure
-// -> provider (live only behind the DB budget gate) -> schema validation -> server-side entitlements (never trust the model).
+// -> subscriber: the server picks the candidate exercises from the VORA library (the model may only point at one of them by id)
+// -> provider (live only behind the DB budget gate) -> schema validation -> server-side entitlements (never trust the model):
+//    subscriber cards / plans are BUILT FROM THE LIBRARY RECORD, an unknown id is dropped; trial and coins get a short general answer,
+//    no card, no plan, no meal, and an "upgrade" hint the app words itself.
 // Message and media contents are never logged here; media is never stored.
+import { buildCard, buildPlan, inferMuscles, type LibraryExercise, parseCandidates, shorten, wantsPlan } from './library.ts'
 import { type Environment, type Lang, type MediaKind, type Persona, systemPrompt, type Tone, type Turn, userEnvelope } from './prompts.ts'
 import { canHandle, costMicro, estimateMicro, GEMINI_MEDIA_MODEL, type Media, type Provider } from './providers.ts'
 import { clean, detectInjection, MEDICAL_REFUSAL, medicalCheck, URGENT_REPLY, urgentCheck } from './sanitize.ts'
@@ -35,6 +39,8 @@ export interface Deps {
   access(userId: string): Promise<Access>     // trainer_access(); throws when the database cannot answer
   trialConsume(userId: string, conversationId: string): Promise<TrialResult>
   trialRefund(userId: string): Promise<void>
+  /** library_candidates() with the service role: the compact records of the exercises the model may choose from (raw; validated in library.ts). muscles [] = a balanced set. */
+  libraryCandidates(muscles: string[], environment: Environment, limit: number): Promise<unknown>
   timeoutMs?: number
 }
 export type Out = { status: number; body: Record<string, unknown> }
@@ -131,7 +137,7 @@ const MEDIA_NOTE: Record<Lang, string> = {
   ar: 'وصلنا ملفك لكن ما قدرنا نحلله حالياً، فما راح يتم التعليق على محتواه.',
   en: 'Your file was received but could not be analysed right now, so nothing is said about its contents.',
 }
-const LOCKED_TEXT: Record<Lang, Record<Lockable, string>> = {
+const LOCKED_TEXT: Record<Lang, Record<'nutrition' | 'plan', string>> = {
   ar: {
     nutrition: 'إرشادات التغذية والوجبات متوفرة ضمن باقات VORA اللي تشمل التغذية. أقدر أساعدك الحين بالتمارين وطريقة الأداء والاستشفاء.',
     plan: 'الخطط التدريبية الشخصية الكاملة متوفرة مع اشتراك VORA. أقدر أساعدك الحين بتمرين معيّن أو بنصايح عامة للتمرين.',
@@ -141,6 +147,15 @@ const LOCKED_TEXT: Record<Lang, Record<Lockable, string>> = {
     plan: 'Full personalised training plans come with a VORA subscription. Right now I can help you with a single exercise or general training guidance.',
   },
 }
+/** Subscriber asked for an exercise / plan and nothing from the library could be delivered (empty library, or the model pointed outside it). */
+const NO_LIBRARY: Record<Lang, string> = {
+  ar: 'ما لقيت تمرين مناسب لهالطلب في مكتبة VORA حالياً، فما راح أقترح تمرين من خارجها. قول لي أي عضلة تبي وتتمرن بالنادي ولا بالبيت وأدوّر لك من المكتبة.',
+  en: 'I could not find a matching exercise in the VORA library for this right now, so I will not suggest one from outside it. Tell me which muscle you want and whether you train at the gym or at home, and I will look in the library.',
+}
+/** Trial and coins answers are short: the provider is capped here and the reply is cut at a sentence end if a model overruns. */
+export const SHORT_MAX_OUTPUT_TOKENS = 400      // one or two sentences in Arabic + the spoken version + the JSON around them, with headroom
+export const SHORT_REPLY_MAX_CHARS = 320
+export type Upgrade = { reason: Lockable | 'personalised' } | null
 const NO_SAFETY = { injury_reported: false, injured_area: null, refused: false, refusal_reason: null, urgent: false }
 const accessOut = (a: Access | null, trialRemaining: number | null) => (a ? { tier: a.tier, nutrition: a.tier === 'subscriber' && a.nutrition === true, trial_remaining: trialRemaining } : null)
 const trialLeft = (a: Access | null) => (a && a.tier === 'trial' && typeof a.trial?.remaining === 'number' ? a.trial.remaining : null)
@@ -148,7 +163,7 @@ const trialLeft = (a: Access | null) => (a && a.tier === 'trial' && typeof a.tri
 /** Fixed answer written by the server (no provider, nothing charged, no trial message used). */
 function fixedReply(requestId: string, inp: Input, text: { chat_reply: string; voice_script: string }, safety: Record<string, unknown>, access: Access | null, note: string | null = null): Out {
   const received = inp.attachment ? [inp.attachment.kind] : []
-  return { status: 200, body: { request_id: requestId, conversation_id: inp.conversationId, chat_reply: text.chat_reply, voice_script: text.voice_script, off_topic: false, safety: { ...NO_SAFETY, ...safety }, workout_card: null, workout_plan: null, meal_card: null, locked: [], media: { received, analyzed: [], note }, credits_charged: 0, mock: false, replay: false, access: accessOut(access, trialLeft(access)) } }
+  return { status: 200, body: { request_id: requestId, conversation_id: inp.conversationId, chat_reply: text.chat_reply, voice_script: text.voice_script, off_topic: false, safety: { ...NO_SAFETY, ...safety }, workout_card: null, workout_plan: null, meal_card: null, locked: [], upgrade: null, media: { received, analyzed: [], note }, credits_charged: 0, mock: false, replay: false, access: accessOut(access, trialLeft(access)) } }
 }
 
 export async function handleTrainer(d: Deps, userId: string, body: Record<string, unknown> | null): Promise<Out> {
@@ -186,8 +201,8 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   }
   if (access.tier !== 'subscriber' && access.tier !== 'trial' && access.tier !== 'coins') return noAccess('subscription_required')
   const tier = access.tier
-  // subscribers and pay-as-you-go members pay VORA Coins per request; only the subscription unlocks plans and nutrition
-  const pays = tier !== 'trial'
+  // subscribers and pay-as-you-go members pay VORA Coins per request; only the subscription unlocks the library, plans and nutrition
+  const pays = tier !== 'trial', sub = tier === 'subscriber'
   const nutrition = tier === 'subscriber' && access.nutrition === true
 
   const operation = OPERATION[kind ?? 'text']
@@ -255,6 +270,21 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     }
   }
 
+  // ---- 8b. subscribers: the server (not the model) decides which library exercises are on the table for this request
+  let library: LibraryExercise[] = []
+  if (sub) {
+    let muscles = inferMuscles(inp.message)
+    if (!muscles.length) muscles = inferMuscles(inp.history.filter((h) => h.role === 'user').slice(-3).map((h) => h.text).join(' '))
+    try { library = parseCandidates(await d.libraryCandidates(muscles, inp.environment, wantsPlan(inp.message) ? 24 : 12)) }
+    catch {
+      await undo('library_unavailable')
+      await d.finishJob(userId, inp.idem, { status: 'failed', error_code: 'library_unavailable', finished_at: new Date().toISOString() })
+      return { status: 503, body: { error: 'provider_unavailable' } }
+    }
+  }
+  const byId = new Map(library.map((e) => [e.id, e]))
+  const maxTokens = sub ? route.max_output_tokens : Math.min(route.max_output_tokens, SHORT_MAX_OUTPUT_TOKENS)
+
   const user = userEnvelope({ message: inp.message, history: inp.history, environment: inp.environment, attached: kind })
   let lastErr = 'provider_failed'
   for (const a of attempts) {
@@ -262,16 +292,16 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     const prov = d.provider(a.provider)
     if (!prov) { lastErr = 'provider_not_configured'; continue }
     const media = a.withMedia && inp.attachment ? inp.attachment : undefined
-    const system = systemPrompt({ persona: inp.persona, tone: inp.tone, language: inp.language, environment: inp.environment, tier, nutrition, medicalFlag: medical === 'flag', attached: kind, mediaProvided: Boolean(media) })
+    const system = systemPrompt({ persona: inp.persona, tone: inp.tone, language: inp.language, environment: inp.environment, tier, nutrition, medicalFlag: medical === 'flag', attached: kind, mediaProvided: Boolean(media), candidates: library })
     const isLive = a.provider !== 'mock'
     let est = 0
     if (isLive) {
-      try { est = estimateMicro(a.model, system, user, route.max_output_tokens, media) } catch { lastErr = 'unpriced_model'; continue }
+      try { est = estimateMicro(a.model, system, user, maxTokens, media) } catch { lastErr = 'unpriced_model'; continue }
       if (!(await d.budgetAuthorize(est))) { lastErr = 'budget_blocked'; continue }
     }
     const t0 = Date.now(), ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), d.timeoutMs ?? (media && media.kind !== 'image' ? 55000 : 25000))
     try {
-      const r = await prov.call({ system, user, model: a.model, maxTokens: route.max_output_tokens, signal: ctl.signal, media, meta: { message: inp.message, language: inp.language, environment: inp.environment, attachmentKind: kind } })
+      const r = await prov.call({ system, user, model: a.model, maxTokens, signal: ctl.signal, media, meta: { message: inp.message, language: inp.language, environment: inp.environment, attachmentKind: kind, tier, candidates: library } })
       clearTimeout(timer)
       const cost = isLive ? costMicro(a.model, r.inputTokens, r.outputTokens, media?.kind === 'audio') : 0
       if (isLive) await d.budgetSettle(est, cost)                          // the provider was paid even if the answer is unusable
@@ -283,23 +313,42 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
       const safety = { ...o.safety }
       const offTopic = o.off_topic && !safety.urgent
       const noCards = offTopic || safety.urgent || safety.refused
-      let workoutCard = noCards ? null : o.workout_card, workoutPlan = noCards ? null : o.workout_plan, mealCard = noCards ? null : o.meal_card
+      const safetyReply = safety.urgent || safety.refused || safety.injury_reported
+      let workoutCard: Record<string, unknown> | null = null, workoutPlan: Record<string, unknown> | null = null, mealCard = noCards ? null : o.meal_card
       let chatReply = o.chat_reply, voiceScript = o.voice_script
       const stripped: Lockable[] = []
+      let libraryMiss = false
       if (mealCard && !nutrition) { mealCard = null; stripped.push('nutrition') }
-      if (workoutPlan && tier !== 'subscriber') { workoutPlan = null; stripped.push('plan') }
-      if (stripped.length) {                                               // the text may describe what was just removed: replace it
-        chatReply = (mock ? '[MOCK] ' : '') + LOCKED_TEXT[inp.language][stripped[0]]; voiceScript = LOCKED_TEXT[inp.language][stripped[0]]; workoutCard = null
+      if (!noCards && o.workout_plan) {
+        if (!sub) stripped.push('plan')
+        else { workoutPlan = buildPlan(o.workout_plan, byId, inp.language); if (!workoutPlan) libraryMiss = true }   // only library exercises survive
       }
-      const hinted = noCards ? [] : o.withheld.filter((w) => (w === 'nutrition' ? !nutrition : tier !== 'subscriber'))
+      if (!noCards && o.workout_card) {
+        if (!sub) stripped.push('library')                                 // exercise cards come from the library: subscribers only
+        else { const rec = byId.get(o.workout_card.exercise_id); if (rec) workoutCard = buildCard(rec, o.workout_card, inp.language, inp.environment); else libraryMiss = true }
+      }
+      const replaced = stripped.find((x): x is 'nutrition' | 'plan' => x !== 'library')
+      if (replaced) {                                                      // the text may describe what was just removed: replace it
+        chatReply = (mock ? '[MOCK] ' : '') + LOCKED_TEXT[inp.language][replaced]; voiceScript = LOCKED_TEXT[inp.language][replaced]; workoutCard = null
+      }
+      // the model pointed outside the candidates (or the library is empty): nothing invented is shown, and the reply says so plainly
+      const nothingFromLibrary = libraryMiss && !workoutCard && !workoutPlan
+      if (nothingFromLibrary && !replaced) { chatReply = (mock ? '[MOCK] ' : '') + NO_LIBRARY[inp.language]; voiceScript = NO_LIBRARY[inp.language] }
+      const hinted = noCards ? [] : o.withheld.filter((w) => (w === 'nutrition' ? !nutrition : !sub))
       const locked = [...new Set<Lockable>([...stripped, ...hinted])]
+      // trial / coins: one or two sentences. A model that overruns is cut at a sentence end; a safety answer is never cut.
+      if (!sub && !safetyReply) { chatReply = shorten(chatReply, SHORT_REPLY_MAX_CHARS); voiceScript = shorten(voiceScript, SHORT_REPLY_MAX_CHARS) }
+      // what the app may offer (its own wording; the model writes no sales text). Never next to a safety, urgent or off-topic answer.
+      const upgrade: Upgrade = sub || offTopic || safetyReply ? null : locked.length ? { reason: locked[0] } : tier === 'trial' ? { reason: 'personalised' } : null
       const analyzed = media ? [media.kind] : []
-      // a paid media operation whose file could not be analysed by a real provider is not charged (the mock simulates the full flow)
-      const charge = reservationId !== null && !(kind && !media && !mock)
-      if (reservationId) { if (charge) await d.settle(reservationId, userId); else await d.release(reservationId, userId, 'media_not_analyzed') }
+      // not charged: a paid media operation whose file could not be analysed by a real provider (the mock simulates the full flow),
+      // and a request for a library exercise / plan that ended with nothing from the library
+      const unusable = kind && !media && !mock ? 'media_not_analyzed' : nothingFromLibrary && !mealCard ? 'library_no_match' : null
+      const charge = reservationId !== null && !unusable
+      if (reservationId) { if (charge) await d.settle(reservationId, userId); else await d.release(reservationId, userId, unusable ?? 'not_charged') }
       const out: Record<string, unknown> = {
         request_id: requestId, conversation_id: inp.conversationId, chat_reply: chatReply, voice_script: voiceScript, off_topic: offTopic, safety,
-        workout_card: workoutCard, workout_plan: workoutPlan, meal_card: mealCard, locked,
+        workout_card: workoutCard, workout_plan: workoutPlan, meal_card: mealCard, locked, upgrade,
         media: { received: kind ? [kind] : [], analyzed, note: kind && !media ? MEDIA_NOTE[inp.language] : null },
         credits_charged: charge ? op.credits : 0, mock, replay: false, access: accessOut({ ...access, nutrition }, trialRemaining),
       }

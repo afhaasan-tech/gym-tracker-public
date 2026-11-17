@@ -2,12 +2,14 @@
 // implemented but can only run when AI_MODE=live, their key secret exists AND the database budget gate authorises the estimated
 // cost (see core.ts). Every provider must answer with ONE JSON object (validated in schemas.ts). Keys never leave this file's caller.
 // Media is passed through in memory only: it is never logged and never stored.
-import type { MediaKind } from './prompts.ts'
+import { inferMuscles, type LibraryExercise } from './library.ts'
+import type { MediaKind, Tier } from './prompts.ts'
 import { REDIRECT } from './prompts.ts'
 import { GEMINI_RESPONSE_SCHEMA } from './schemas.ts'
 
 export type Media = { kind: MediaKind; mimeType: string; dataBase64: string; bytes: number }
-export type ProviderMeta = { message: string; language: 'ar' | 'en'; environment: 'gym' | 'home'; attachmentKind: MediaKind | null }
+/** tier + candidates are only read by the mock (a live model gets them through the system prompt): the library exercises the server offers. */
+export type ProviderMeta = { message: string; language: 'ar' | 'en'; environment: 'gym' | 'home'; attachmentKind: MediaKind | null; tier?: Tier; candidates?: LibraryExercise[] }
 export type ProviderRequest = { system: string; user: string; model: string; maxTokens: number; signal: AbortSignal; media?: Media; meta: ProviderMeta }
 export type ProviderResult = { text: string; inputTokens: number; outputTokens: number }
 export interface Provider { name: string; call(r: ProviderRequest): Promise<ProviderResult> }
@@ -53,17 +55,11 @@ export function estimateMicro(model: string, system: string, user: string, maxTo
 
 // ---------------------------------------------------------------- mock (clearly labelled, schema-valid, no network, never "sees" media)
 const has = (s: string, words: string[]) => { const t = s.toLowerCase(); return words.some((w) => t.includes(w)) }
-const MUSCLE_WORDS: Array<[string, string[], string, string]> = [
-  ['back', ['ظهر', 'back', 'lat'], 'سحب أرضي بالدمبل', 'Dumbbell Row'],
-  ['shoulders', ['كتف', 'أكتاف', 'اكتاف', 'shoulder'], 'ضغط أكتاف بالدمبل', 'Dumbbell Shoulder Press'],
-  ['biceps', ['بايسبس', 'باي', 'bicep'], 'تبادل دمبل للبايسبس', 'Dumbbell Biceps Curl'],
-  ['triceps', ['ترايسبس', 'تراي', 'tricep'], 'تمديد ترايسبس فوق الرأس', 'Overhead Triceps Extension'],
-  ['forearms', ['ساعد', 'forearm'], 'ثني الرسغ بالدمبل', 'Dumbbell Wrist Curl'],
-  ['hips', ['أرجل', 'ارجل', 'رجل', 'مؤخرة', 'ورك', 'سكوات', 'leg', 'glute', 'hip', 'squat'], 'سكوات بالدمبل', 'Goblet Squat'],
-  ['calf', ['سمانة', 'سمانه', 'calf', 'calves'], 'رفع السمانة واقف', 'Standing Calf Raise'],
-  ['abs', ['بطن', 'معدة', 'abs', 'core'], 'بلانك', 'Plank'],
-  ['chest', ['صدر', 'chest'], 'ضغط صدر بالدمبل', 'Dumbbell Bench Press'],
-]
+const MUSCLE_NAME: Record<string, [string, string]> = {
+  back: ['الظهر', 'back'], chest: ['الصدر', 'chest'], shoulders: ['الأكتاف', 'shoulders'], biceps: ['البايسبس', 'biceps'], triceps: ['الترايسبس', 'triceps'],
+  forearms: ['الساعد', 'forearms'], hips: ['الأرجل والأرداف', 'legs and glutes'], calf: ['السمانة', 'calves'], abs: ['البطن', 'core'],
+}
+const NO_LIBRARY_MATCH = { ar: 'ما في تمرين مناسب لهالطلب بمكتبة VORA حالياً.', en: 'There is no matching exercise in the VORA library for this request right now.' }
 const NO_MEDIA = { ar: 'وصلني ملفك، بس بالوضع التجريبي ما أقدر أفتح أو أحلل الصور والصوت والفيديو، فما راح أعلّق على محتواه.', en: 'I received your file, but in mock mode I cannot open or inspect images, audio or video, so I will not comment on what it contains.' }
 
 function mockBody(m: ProviderMeta): Record<string, unknown> {
@@ -101,37 +97,44 @@ function mockBody(m: ProviderMeta): Record<string, unknown> {
       },
     }
   }
+  // Everything below follows the server's rules: only a subscriber gets a card or a plan, and only with exercises picked (always the
+  // same way) from the candidates the server offered. The mock never makes an exercise up.
+  const subscriber = m.tier === 'subscriber', lib = m.candidates ?? []
+  const ref = (e: LibraryExercise) => ({ exercise_id: e.id, sets: e.default_sets, reps: e.default_reps, rest_seconds: e.rest_seconds, note: '' })
   if (has(msg, ['خطة', 'خطه']) || /\bplans?\b/i.test(msg)) {
-    const ex = (name: string) => ({ name, sets: 3, reps: '8-12', rest_seconds: 90 })
+    if (!subscriber) {
+      return { ...base, withheld: ['plan'], chat_reply: ar ? 'كبداية عامة: مرّن كل عضلة مرتين بالأسبوع وخل بينهم يوم راحة، وزيد الحمل شوي شوي.' : 'As a general start: train each muscle group twice a week with a rest day in between, and add load gradually.', voice_script: ar ? 'مرّن كل عضلة مرتين بالأسبوع وزيد الحمل شوي شوي.' : 'Train each muscle group twice a week and add load gradually.' }
+    }
+    if (!lib.length) return { ...base, chat_reply: NO_LIBRARY_MATCH[m.language], voice_script: NO_LIBRARY_MATCH[m.language] }
+    const perDay = lib.length >= 6 ? 2 : 1, dayCount = Math.min(3, Math.ceil(lib.length / perDay))
+    const days = Array.from({ length: dayCount }, (_, i) => {
+      const picks = lib.slice(i * perDay, i * perDay + perDay)
+      return { day_label: ar ? `اليوم ${i + 1}` : `Day ${i + 1}`, focus: picks.map((e) => MUSCLE_NAME[e.primary_muscle][ar ? 0 : 1]).filter((x, j, all) => all.indexOf(x) === j).join(ar ? ' و' : ' and '), exercises: picks.map(ref) }
+    })
     return {
       ...base,
-      chat_reply: ar ? 'هذي خطة تجريبية من ٣ أيام. ابدأ بأوزان خفيفة وركّز على الأداء الصح.' : 'Here is a mock 3-day plan. Start light and focus on clean form.',
-      voice_script: ar ? 'هذي خطة تجريبية من ثلاثة أيام.' : 'Here is a mock three day plan.',
-      workout_plan: {
-        title: ar ? 'خطة تجريبية ٣ أيام' : 'Mock 3-day plan',
-        days: [
-          { day_label: ar ? 'اليوم ١' : 'Day 1', focus: ar ? 'دفع: صدر وأكتاف' : 'Push: chest and shoulders', exercises: [ex(ar ? 'ضغط صدر بالدمبل' : 'Dumbbell Bench Press'), ex(ar ? 'ضغط أكتاف' : 'Shoulder Press')] },
-          { day_label: ar ? 'اليوم ٢' : 'Day 2', focus: ar ? 'سحب: ظهر وبايسبس' : 'Pull: back and biceps', exercises: [ex(ar ? 'سحب بالدمبل' : 'Dumbbell Row'), ex(ar ? 'تبادل دمبل' : 'Biceps Curl')] },
-          { day_label: ar ? 'اليوم ٣' : 'Day 3', focus: ar ? 'أرجل وبطن' : 'Legs and core', exercises: [ex(ar ? 'سكوات' : 'Goblet Squat'), ex(ar ? 'بلانك' : 'Plank')] },
-        ],
-        notes: ar ? 'خطة تجريبية للاختبار فقط.' : 'Mock plan for testing only.',
-      },
+      chat_reply: ar ? `هذي خطة تجريبية من ${dayCount} أيام من مكتبة VORA. ابدأ بأوزان خفيفة وركّز على الأداء الصح.` : `Here is a mock ${dayCount}-day plan from the VORA library. Start light and focus on clean form.`,
+      voice_script: ar ? 'هذي خطة تجريبية من مكتبة فورا.' : 'Here is a mock plan from the VORA library.',
+      workout_plan: { title: ar ? `خطة تجريبية ${dayCount} أيام` : `Mock ${dayCount}-day plan`, days, notes: ar ? 'خطة تجريبية للاختبار فقط.' : 'Mock plan for testing only.' },
     }
   }
   if (has(msg, ['تمرين', 'exercise'])) {
-    const hit = MUSCLE_WORDS.find(([, words]) => has(msg, words)) ?? MUSCLE_WORDS[MUSCLE_WORDS.length - 1]
-    const home = m.environment === 'home'
+    const muscles = inferMuscles(msg)
+    if (!subscriber) {
+      const name = muscles.length ? MUSCLE_NAME[muscles[0]][ar ? 0 : 1] : null
+      return {
+        ...base, withheld: ['library'],
+        chat_reply: ar ? `${name ? `لتمرين ${name}` : 'لأي تمرين'}: اختار وزن تتحكم فيه، وسوّ ٢ إلى ٣ جولات من ٨ إلى ١٢ عدة بأداء صح، ووقّف إذا حسّيت بألم حاد.` : `${name ? `For your ${name}` : 'For any exercise'}: pick a load you can control, do 2 to 3 sets of 8 to 12 clean reps, and stop if you feel sharp pain.`,
+        voice_script: ar ? 'اختار وزن تتحكم فيه وسوّ جولتين إلى ثلاث بأداء صح.' : 'Pick a load you can control and do two to three clean sets.',
+      }
+    }
+    const hit = lib.find((e) => muscles.includes(e.primary_muscle)) ?? lib[0]
+    if (!hit) return { ...base, chat_reply: NO_LIBRARY_MATCH[m.language], voice_script: NO_LIBRARY_MATCH[m.language] }
     return {
       ...base,
-      chat_reply: ar ? `هذا تمرين تجريبي: ${hit[2]}. ركّز على الأداء الصح قبل الوزن.` : `Here is a mock exercise: ${hit[3]}. Focus on clean form before weight.`,
-      voice_script: ar ? `جرّب ${hit[2]}، وركّز على الأداء الصح.` : `Try the ${hit[3]} and focus on clean form.`,
-      workout_card: {
-        exercise_name_ar: hit[2], exercise_name_en: hit[3], target_muscle: hit[0], secondary_muscles: hit[0] === 'chest' ? ['triceps', 'shoulders'] : hit[0] === 'back' ? ['biceps'] : [],
-        environment: m.environment, equipment: home ? (ar ? 'دمبل أو قناني ماي' : 'Dumbbells or water bottles') : (ar ? 'دمبل وبنش' : 'Dumbbells and a bench'),
-        sets: 3, reps: '10-12', rest_seconds: 75,
-        posture_cues: ar ? ['شد بطنك وخل ظهرك مستقيم', 'انزل ببطء وتحكم بالحركة', 'لا تقفل المفصل بقوة فوق'] : ['Brace your core and keep a neutral spine', 'Lower slowly and stay in control', 'Do not lock the joint hard at the top'],
-        alternative: { name_ar: home ? (ar ? 'نفس التمرين على جهاز بالنادي' : 'Machine version at the gym') : (ar ? 'نسخة البيت بوزن الجسم' : 'Bodyweight version at home'), reason_ar: ar ? 'بديل إذا ما توفرت المعدات' : 'An option when the equipment is not available' },
-      },
+      chat_reply: ar ? `هذا تمرين تجريبي من مكتبة VORA: ${hit.name_ar}. ركّز على الأداء الصح قبل الوزن.` : `Here is a mock exercise from the VORA library: ${hit.name_en}. Focus on clean form before weight.`,
+      voice_script: ar ? `جرّب ${hit.name_ar}، وركّز على الأداء الصح.` : `Try the ${hit.name_en} and focus on clean form.`,
+      workout_card: ref(hit),
     }
   }
   if (!msg) return { ...base, chat_reply: '', voice_script: '' }
