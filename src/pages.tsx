@@ -37,7 +37,6 @@ export function SearchPage({ q, go }: { q: string; go: Go }) {
       </form>
       {(sports.loading || coaches.loading || services.loading) ? <Loading /> : (
         <>
-          <h2>{t("الرياضات (")}{rs.length})</h2><div className="chips wrap">{rs.map((s) => <button key={s.id} type="button" className="chip chip-btn" onClick={() => go(`/sports/${s.slug}`)}>{sportName(s)}</button>)}</div>
           <h2>{t("المدربون (")}{rc.length})</h2><ul className="list">{rc.map((c) => <li key={c.id} className="card row"><div className="row-body"><strong>{c.display_name}</strong><span className="muted small">{c.bio.slice(0, 100)}</span></div><button className="outline" type="button" onClick={() => go(`/coaches/${c.id}`)}>{t("الملف")}</button></li>)}</ul>
           <h2>{t("الخدمات (")}{rv.length})</h2><ul className="list">{rv.map((s) => <li key={s.id} className="card row"><div className="row-body"><strong>{s.name}</strong><span className="muted small">{kwd(s.price_kwd)} · {FORMAT_LABEL[s.format]} · {DELIVERY_LABEL[s.delivery]}</span></div><button className="outline" type="button" onClick={() => go(`/book/${s.id}`)}>{t("التفاصيل")}</button></li>)}</ul>
           {rs.length + rc.length + rv.length === 0 && <p className="muted empty">{t("ما لقينا نتائج. جرّب كلمة ثانية.")}</p>}
@@ -186,7 +185,7 @@ export function BookingWizard({ serviceId, session, go }: { serviceId: string; s
   const s = services.data.find((x) => x.id === serviceId)
   useEffect(() => { try { sessionStorage.setItem(WIZ, JSON.stringify(w)) } catch { /* ignore */ } }, [w])
   if (services.loading) return <Page title="…"><Loading /></Page>
-  if (!s) return <Page title={t("الخدمة غير متاحة")}><p className="muted">{t("هذي الخدمة غير منشورة أو غير موجودة.")}</p><button className="outline" onClick={() => go('/sports')}>{t("رجوع")}</button></Page>
+  if (!s) return <Page title={t("الخدمة غير متاحة")}><p className="muted">{t("هذي الخدمة غير منشورة أو غير موجودة.")}</p><button className="outline" onClick={() => go('/coaches')}>{t("رجوع")}</button></Page>
   const coach = coaches.data.find((c) => c.id === s.coach_id)
   const hasSlots = slots.data.length > 0
   const minor = s.min_age != null && s.min_age < 18
@@ -225,7 +224,7 @@ export function BookingWizard({ serviceId, session, go }: { serviceId: string; s
     </Page>)
   return (
     <Page title={s.name} kicker={coach ? t("مع {0}", [coach.display_name]) : t("خدمة من المنصة")}>
-      <Crumbs go={go} items={[[t("الرياضات"), '/sports'], [s.name]]} />
+      <Crumbs go={go} items={[[t("المدربون"), '/coaches'], [s.name]]} />
       <section className="card"><p>{s.description}</p>
         <span className="chips"><span className="chip">{kwd(s.price_kwd)}</span><span className="chip">{FORMAT_LABEL[s.format]}</span><span className="chip">{DELIVERY_LABEL[s.delivery]}</span><span className="chip">{s.duration_minutes} {t("دقيقة")}</span><span className="chip chip-warn">{futurePaid()}</span><Demo /></span>
         {coach && <button className="link" type="button" onClick={() => go(`/coaches/${coach.id}`)}>{t("ملف المدرب")}</button>}

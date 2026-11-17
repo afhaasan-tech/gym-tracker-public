@@ -14,7 +14,7 @@ type Mod<T> = { default: T }
 const pick = <M, K extends keyof M>(load: () => Promise<M>, k: K) => lazy(() => load().then((m) => ({ default: m[k] }) as Mod<M[K] & React.ComponentType<any>>))
 const app = () => import('./App'), pages = () => import('./pages'), vora = () => import('./vora'), coach = () => import('./coach')
 const Auth = pick(app, 'Auth'), MemberArea = pick(app, 'MemberArea'), SetNewPassword = pick(app, 'SetNewPassword')
-const BookingWizard = pick(pages, 'BookingWizard'), CoachProfile = pick(pages, 'CoachProfile'), CoachesPage = pick(pages, 'CoachesPage'), FoodHub = pick(pages, 'FoodHub'), FoodInfo = pick(pages, 'FoodInfo'), FoodServices = pick(pages, 'FoodServices'), Journey = pick(pages, 'Journey'), MyBookings = pick(pages, 'MyBookings'), PublicLibrary = pick(pages, 'PublicLibrary'), SearchPage = pick(pages, 'SearchPage'), SelfGuided = pick(pages, 'SelfGuided'), SportDetail = pick(pages, 'SportDetail'), SportsPage = pick(pages, 'SportsPage')
+const BookingWizard = pick(pages, 'BookingWizard'), CoachProfile = pick(pages, 'CoachProfile'), CoachesPage = pick(pages, 'CoachesPage'), FoodHub = pick(pages, 'FoodHub'), FoodInfo = pick(pages, 'FoodInfo'), FoodServices = pick(pages, 'FoodServices'), Journey = pick(pages, 'Journey'), MyBookings = pick(pages, 'MyBookings'), PublicLibrary = pick(pages, 'PublicLibrary'), SearchPage = pick(pages, 'SearchPage'), SelfGuided = pick(pages, 'SelfGuided')
 const DeviceGate = pick(vora, 'DeviceGate'), Onboarding = pick(vora, 'Onboarding'), Wallet = pick(vora, 'Wallet'), CoachChat = pick(vora, 'CoachChat'), VoraPlans = pick(vora, 'VoraPlans'), OwnerCommerce = pick(vora, 'OwnerCommerce')
 const CoachArea = lazy(coach), ClaimCoachCard = pick(coach, 'ClaimCoachCard')
 const OwnerArea = lazy(() => import('./owner')), PlansPage = lazy(() => import('./PlansPage')), PayReturn = lazy(() => import('./PayReturn'))
@@ -80,8 +80,8 @@ function RootInner() {
   else if (VORA_ON && session && path === '/') page = <CoachChat />
   else if (path === '/') page = <HomePage go={go} />
   else if (path === '/search') page = <SearchPage q={query.get('q') ?? ''} go={go} />
-  else if (path === '/sports') page = <SportsPage cat={query.get('cat')} go={go} />
-  else if (seg[0] === 'sports' && seg[1]) page = <SportDetail slug={seg[1]} go={go} />
+  // The standalone Sports section was removed; old links land on the coaches list (sports remain as a filter of coaches and bookings).
+  else if (seg[0] === 'sports') page = <CoachesPage go={go} />
   else if (path === '/coaches') page = <CoachesPage go={go} />
   else if (seg[0] === 'coaches' && seg[1]) page = <CoachProfile id={seg[1]} go={go} />
   else if (seg[0] === 'journey' && ['private', 'group', 'book'].includes(seg[1])) page = <Journey kind={seg[1] as 'private' | 'group' | 'book'} query={query} go={go} />

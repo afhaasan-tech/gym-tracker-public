@@ -1,9 +1,8 @@
 // Home page lives in its own small module so the first paint does not wait for the exercise/food libraries.
-import { useMemo } from 'react'
-import { CATEGORY_LABEL, useCoaches, useServices, useSports } from './catalog'
+import { useCoaches, useServices } from './catalog'
 import { LoadingState, ErrorState, DemoBadge } from './ui'
 import { t } from './i18n'
-import { UserCheck, Users, Dumbbell, Salad, CalendarCheck, Trophy, Tag, type LucideIcon } from 'lucide-react'
+import { UserCheck, Users, Dumbbell, Salad, CalendarCheck, Tag, type LucideIcon } from 'lucide-react'
 
 type Go = (to: string) => void
 const Loading = LoadingState
@@ -16,11 +15,9 @@ const choices = (): { label: string; to: string; hint: string; Icon: LucideIcon 
   { label: t('أبي أتمرن بروحي'), to: '/self', Icon: Dumbbell, hint: t('تمارين مجانية حسب هدفك') },
   { label: t('أبي نظام غذائي'), to: '/food', Icon: Salad, hint: t('يومية الأكل والمعلومات والخدمات') },
   { label: t('أبي أحجز جلسة'), to: '/journey/book', Icon: CalendarCheck, hint: t('من الرياضة إلى الموعد') },
-  { label: t('أبي أتصفح الرياضات'), to: '/sports', Icon: Trophy, hint: t('كل الرياضات المتاحة') },
 ]
 export function HomePage({ go }: { go: Go }) {
-  const sports = useSports(), coaches = useCoaches(), services = useServices()
-  const cats = useMemo(() => [...new Set(sports.data.map((s) => s.category))].filter((c) => c !== 'nutrition'), [sports.data])
+  const coaches = useCoaches(), services = useServices()
   return (
     <main className="screen market home">
       <section className="home-hero">
@@ -41,10 +38,6 @@ export function HomePage({ go }: { go: Go }) {
       </section>
       <section aria-label={t("ابدأ من هنا")}><h2>{t("وش تبي اليوم؟")}</h2>
         <div className="choice-grid">{choices().map((c) => <button key={c.to} type="button" className="choice card" onClick={() => go(c.to)}><c.Icon size={22} aria-hidden="true" className="choice-icon" /><strong>{c.label}</strong><span className="muted small">{c.hint}</span></button>)}</div>
-      </section>
-      <section><div className="section-head"><h2>{t("اكتشف الرياضات")}</h2><button className="link" type="button" onClick={() => go('/sports')}>{t("عرض الكل")}</button></div>
-        {sports.loading ? <Loading /> : <div className="chips wrap">{cats.map((c) => <button key={c} type="button" className="chip chip-btn" onClick={() => go(`/sports?cat=${c}`)}>{CATEGORY_LABEL[c] ?? c}</button>)}</div>}
-        <Err msg={sports.error} />
       </section>
       <section><div className="section-head"><h2>{t("مدربون معتمدون")}</h2><button className="link" type="button" onClick={() => go('/coaches')}>{t("كل المدربين")}</button></div>
         {coaches.loading ? <Loading /> : coaches.data.length === 0 ? <p className="muted">{t("ما في مدربين معتمدين حالياً.")}</p>

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { BookOpen, CalendarCheck, Dumbbell, Home, LogIn, MoreHorizontal, Salad, Shield, Target, User, Users, Trophy, Briefcase, Tag, type LucideIcon } from 'lucide-react'
+import { BookOpen, CalendarCheck, Dumbbell, Home, LogIn, MoreHorizontal, Salad, Shield, Target, User, Users, Briefcase, Tag, type LucideIcon } from 'lucide-react'
 import { Brand } from './brand'
 import { supabase } from './supabase'
 import { t } from './i18n'
@@ -59,7 +59,6 @@ export default function Shell({ items, path, go, email, children }: Props) {
 
 export const publicNav = (): NavItem[] => [
   { to: '/', label: t('الرئيسية'), short: t('الرئيسية'), Icon: Home, primary: true },
-  { to: '/sports', label: t('اكتشف الرياضات'), short: t('الرياضات'), Icon: Trophy, primary: true },
   { to: '/coaches', label: t('المدربون'), short: t('المدربون'), Icon: Users, primary: true },
   { to: '/muscles', label: t('اختَر عضلتك'), short: t('عضلتك'), Icon: Target, primary: true },
   { to: '/login', label: t('تسجيل الدخول / إنشاء حساب'), short: t('دخول'), Icon: LogIn, primary: true },
@@ -70,7 +69,6 @@ export const publicNav = (): NavItem[] => [
 export const memberNav = (coach: boolean, admin: boolean): NavItem[] => [
   { to: '/', label: t("الرئيسية"), short: t("الرئيسية"), Icon: Home, primary: true },
   { to: '/workouts', label: t("تماريني"), short: t("تماريني"), Icon: Dumbbell, primary: true },
-  { to: '/sports', label: t("اكتشف الرياضات"), short: t("اكتشف"), Icon: Trophy, primary: true },
   { to: '/bookings', label: t("حجوزاتي"), short: t("حجوزاتي"), Icon: CalendarCheck, primary: true },
   { to: '/profile', label: t("حسابي"), short: t("حسابي"), Icon: User, primary: true },
   { to: '/coaches', label: t("المدربون"), short: t("المدربون"), Icon: Users },
