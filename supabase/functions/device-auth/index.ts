@@ -38,7 +38,6 @@ Deno.serve(async (req) => {
       return true
     },
     sendMail: (to, subject, text) => sendMail(db, to, subject, text),
-    async revokeOtherSessions() { await db.auth.admin.signOut(token, 'others') },
   }
   const body = await req.json().catch(() => null)
   try { const out = await handleDevice(deps, { userId: u.user.id, email: u.user.email, sessionId }, body); return json(out.status, out.body) }

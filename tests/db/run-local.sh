@@ -24,6 +24,9 @@ PORT=$PORT bash "$HERE/tests/db/ai-budget-concurrency.sh"
 echo "--- m3"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/m3.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
 
+echo "--- two devices + agents"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/two-devices-agents.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
 echo "--- hardening"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -f "$HERE/tests/db/hardening.test.sql" 2>&1 | grep -E "PASS|FAIL|ERROR"
 

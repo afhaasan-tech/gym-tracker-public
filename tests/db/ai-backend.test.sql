@@ -22,7 +22,7 @@ declare n int; begin begin execute q; get diagnostics n = row_count; insert into
 drop table if exists t_ids; create table t_ids(k text primary key, v text); grant all on t_ids to public;
 
 create or replace function t_user(u uuid) returns void language plpgsql as $$ begin
-  insert into auth.users(id,email,email_confirmed_at) values (u, u::text||'@aibackend.test', now()); insert into user_session_state(user_id, active_session_id) values (u, u); end $$;
+  insert into auth.users(id,email,email_confirmed_at) values (u, u::text||'@aibackend.test', now()); insert into user_active_sessions(user_id, session_id) values (u, u); end $$;
 create or replace function t_srv() returns void language plpgsql as $$ begin reset role; perform set_config('request.jwt.claims','',false); set role service_role; end $$;
 do $$ declare r record; begin
   for r in select p.oid::regprocedure x from pg_proc p where p.proname like 't\_%' and p.pronamespace = 'public'::regnamespace loop execute 'grant execute on function ' || r.x || ' to public'; end loop;
@@ -59,7 +59,7 @@ select t_count($$select 1 from rate_limit_hit('u:1', 3, interval '1 minute') whe
 
 -- routes, jobs, privacy
 select t_su();
-select t_count($$select 1 from ai_routes$$,5,'five routes seeded (one per operation)');
+select t_count($$select 1 from ai_routes$$,8,'eight routes seeded (one per operation, incl. the three agents)');
 insert into credit_reservations(id,user_id,operation_key,credits,idempotency_key,expires_at) values ('c1000000-0000-4000-8000-0000000000f1','c1000000-0000-4000-8000-000000000001','quick_question',50,'job-res-0001',now()+interval '10 minutes');
 select t_srv();
 select t_ok($$insert into ai_jobs(user_id,idempotency_key,operation_key,reservation_id,persona,language,request_text) values ('c1000000-0000-4000-8000-000000000001','job-key-0001','quick_question','c1000000-0000-4000-8000-0000000000f1','rashid','ar','سؤال')$$,'service role records a job');

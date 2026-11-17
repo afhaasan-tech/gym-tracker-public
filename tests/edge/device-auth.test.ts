@@ -3,7 +3,7 @@ import { type Deps, handleDevice, mailText } from '../../supabase/functions/devi
 const eq = (a: unknown, b: unknown, m: string) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`) }
 const U = '11111111-1111-4111-8111-111111111111', S = '22222222-2222-4222-8222-222222222222', SECRET = 'A'.repeat(40)
 function mk(o: { trusted?: boolean; status?: 'trusted' | 'challenge_required'; verify?: boolean; allow?: boolean; challenge?: string | null; mailFails?: boolean } = {}) {
-  const log = { mails: [] as string[], revoked: 0, revokedDevices: [] as string[], created: [] as string[], rate: [] as string[] }
+  const log = { mails: [] as string[], revokedDevices: [] as string[], created: [] as string[], rate: [] as string[] }
   const d: Deps = {
     hash: (s) => Promise.resolve('h:' + s.length), randomCode: () => '042917',
     deviceStatus: () => Promise.resolve(o.status ?? 'challenge_required'),
@@ -14,15 +14,18 @@ function mk(o: { trusted?: boolean; status?: 'trusted' | 'challenge_required'; v
     isTrusted: () => Promise.resolve(o.trusted ?? false),
     rateLimit: (b) => { log.rate.push(b); return Promise.resolve(o.allow ?? true) },
     sendMail: (to, _s, t) => { if (o.mailFails) return Promise.reject(new Error('smtp down')); log.mails.push(to + '|' + t); return Promise.resolve() },
-    revokeOtherSessions: () => { log.revoked++; return Promise.resolve() },
   }
   return { d, log, ctx: { userId: U, email: 'u@example.test', sessionId: S } }
 }
-Deno.test('unknown device => challenge_required, other sessions untouched', async () => {
-  const { d, log, ctx } = mk(); const r = await handleDevice(d, ctx, { action: 'status', device_secret: SECRET }); eq(r, { status: 200, body: { state: 'challenge_required' } }, 'status'); eq(log.revoked, 0, 'no revoke')
+Deno.test('unknown device => challenge_required', async () => {
+  const { d, ctx } = mk(); const r = await handleDevice(d, ctx, { action: 'status', device_secret: SECRET }); eq(r, { status: 200, body: { state: 'challenge_required' } }, 'status')
 })
-Deno.test('trusted device => trusted AND all other sessions are signed out (single active session)', async () => {
-  const { d, log, ctx } = mk({ status: 'trusted' }); const r = await handleDevice(d, ctx, { action: 'status', device_secret: SECRET }); eq(r.body.state, 'trusted', 'trusted'); eq(log.revoked, 1, 'others revoked')
+Deno.test('trusted device => trusted; no other session is signed out (two trusted devices, trust lives in the database)', async () => {
+  const { d, ctx } = mk({ status: 'trusted' }); const r = await handleDevice(d, ctx, { action: 'status', device_secret: SECRET }); eq(r, { status: 200, body: { state: 'trusted' } }, 'trusted')
+  if ('revokeOtherSessions' in d) throw new Error('the device flow must not be able to sign other sessions out')
+})
+Deno.test('device-auth never calls auth.admin.signOut (it would sign out the second trusted device)', async () => {
+  for (const f of ['core.ts', 'index.ts']) { const src = await Deno.readTextFile(new URL('../../supabase/functions/device-auth/' + f, import.meta.url)); if (/signOut\s*\(/.test(src)) throw new Error(f + ' still signs sessions out') }
 })
 Deno.test('send_code: code goes ONLY into the e-mail, never into the response', async () => {
   const { d, log, ctx } = mk(); const r = await handleDevice(d, ctx, { action: 'send_code', device_secret: SECRET, language: 'en' })
@@ -34,9 +37,9 @@ Deno.test('send_code is rate limited at the app layer and by the database; mail 
   eq((await handleDevice(mk({ challenge: null }).d, mk().ctx, { action: 'send_code', device_secret: SECRET })).status, 429, 'db limiter (NULL)')
   const m = mk({ mailFails: true }); const r = await handleDevice(m.d, m.ctx, { action: 'send_code', device_secret: SECRET }); eq(r.status, 503, 'mail down'); if (JSON.stringify(r.body).includes('smtp')) throw new Error('internal error leaked')
 })
-Deno.test('verify_code: success revokes other sessions; every failure is the SAME generic 401', async () => {
-  const ok = mk({ verify: true }); const r = await handleDevice(ok.d, ok.ctx, { action: 'verify_code', device_secret: SECRET, code: '042917', label: 'Safari' }); eq(r.body.state, 'trusted', 'trusted'); eq(ok.log.revoked, 1, 'others revoked')
-  const bad = mk({ verify: false }); const f = await handleDevice(bad.d, bad.ctx, { action: 'verify_code', device_secret: SECRET, code: '000000' }); eq(f, { status: 401, body: { error: 'invalid_or_expired_code' } }, 'generic'); eq(bad.log.revoked, 0, 'no revoke on failure')
+Deno.test('verify_code: success => trusted; every failure is the SAME generic 401', async () => {
+  const ok = mk({ verify: true }); const r = await handleDevice(ok.d, ok.ctx, { action: 'verify_code', device_secret: SECRET, code: '042917', label: 'Safari' }); eq(r, { status: 200, body: { state: 'trusted' } }, 'trusted')
+  const bad = mk({ verify: false }); const f = await handleDevice(bad.d, bad.ctx, { action: 'verify_code', device_secret: SECRET, code: '000000' }); eq(f, { status: 401, body: { error: 'invalid_or_expired_code' } }, 'generic')
   for (const c of ['12345', '1234567', 'abcdef', '', undefined]) eq((await handleDevice(bad.d, bad.ctx, { action: 'verify_code', device_secret: SECRET, code: c })).status, 400, 'format ' + c)
 })
 Deno.test('verify attempts are rate limited per user', async () => { const m = mk({ allow: false, verify: true }); eq((await handleDevice(m.d, m.ctx, { action: 'verify_code', device_secret: SECRET, code: '042917' })).status, 429, 'limited') })
