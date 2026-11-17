@@ -2,8 +2,12 @@
 import { chromium } from 'playwright-core'
 const url = process.argv[2]; const runs = 3; const out = []
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] })
+// A protected preview: open the share link once, then reuse only its cookie in fresh (cold-cache) contexts.
+let cookies = []
+if (process.env.SHARE_URL) { const c0 = await b.newContext(); const p0 = await c0.newPage(); await p0.goto(process.env.SHARE_URL, { waitUntil: 'load' }); cookies = await c0.cookies(); await c0.close() }
 for (let i = 0; i < runs; i++) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 } })
+  if (cookies.length) await ctx.addCookies(cookies)
   const p = await ctx.newPage()
   let bytes = 0, js = 0, reqs = 0, api = 0
   p.on('response', async r => { try { reqs++; const len = Number(r.headers()['content-length'] || 0); bytes += len; if (/\.js(\?|$)/.test(r.url())) js += len; if (/supabase\.co/.test(r.url())) api++ } catch {} })
