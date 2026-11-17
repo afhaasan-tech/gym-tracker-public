@@ -89,8 +89,8 @@ export const MEDICAL_REFUSAL = {
 } as const
 
 // ---------------------------------------------------------------- urgent safety (deterministic net for members WITHOUT AI access)
-const URGENT_EN = /\b(suicid(e|al)|kill myself|end my life|want to die|self[- ]harm|hurt myself|chest pain|heart attack|can'?t breathe|cannot breathe|overdos(e|ed)|being abused)\b/i
-const URGENT_AR = /(ابي اموت|ابغي اموت|اريد اموت|ودي اموت|انتحر|انتحار|اذي نفسي|ااذي نفسي|اقتل نفسي|الم بالصدر|الم في الصدر|الم بصدري|وجع بالصدر|جلطه|ما اقدر اتنفس|مو قادر اتنفس|جرعه زايده)/
+const URGENT_EN = /\b(suicid(e|al)|kill myself|end my life|want to die|self[- ]harm|hurt myself|chest pain|pain in my chest|short(ness)? of breath|heart attack|can'?t breathe|cannot breathe|overdos(e|ed)|being abused)\b/i
+const URGENT_AR = /(ابي اموت|ابغي اموت|اريد اموت|ودي اموت|انتحر|انتحار|اذي نفسي|ااذي نفسي|اقتل نفسي|الم بالصدر|الم في الصدر|الم بصدري|وجع بالصدر|الم قوي بصدري|الم قوي بالصدر|ضيق تنفس|ضيق نفس|ضيقه تنفس|جلطه|ما اقدر اتنفس|مو قادر اتنفس|جرعه زايده)/
 export function urgentCheck(text: string): boolean {
   if (!text) return false
   return URGENT_EN.test(text) || URGENT_AR.test(normAr(text))

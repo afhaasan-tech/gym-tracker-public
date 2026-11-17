@@ -313,7 +313,8 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
       const safety = { ...o.safety }
       const offTopic = o.off_topic && !safety.urgent
       const noCards = offTopic || safety.urgent || safety.refused
-      const safetyReply = safety.urgent || safety.refused || safety.injury_reported
+      // the deterministic urgent check also counts: an emergency wording is never shortened and never carries an upgrade hint, whatever the model flagged
+      const safetyReply = urgent || (safety.urgent || safety.refused || safety.injury_reported)
       let workoutCard: Record<string, unknown> | null = null, workoutPlan: Record<string, unknown> | null = null, mealCard = noCards ? null : o.meal_card
       let chatReply = o.chat_reply, voiceScript = o.voice_script
       const stripped: Lockable[] = []
