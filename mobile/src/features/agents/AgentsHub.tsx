@@ -51,6 +51,7 @@ export default function AgentsHub({ initialAgent = 'coach', initialMessage = nul
   const [messages, setMessages] = useState<Record<AgentRole, ChatMessage[]>>({ coach: [], nutritionist: [], support: [] })
   const [prefs, setPrefs] = useState<Prefs | null>(null)
   const [costs, setCosts] = useState<Record<string, number>>({})
+  const [costsLoaded, setCostsLoaded] = useState(false)
   const [balance, setBalance] = useState<number | null>(null)
   const [env, setEnv] = useTrainingEnv()
   const [voice, setVoice] = useState(false)
@@ -65,7 +66,7 @@ export default function AgentsHub({ initialAgent = 'coach', initialMessage = nul
   }, [])
   useEffect(() => {
     supabase.from('member_preferences').select('coach_persona,coach_tone,coach_language,coach_name').maybeSingle().then(({ data }) => setPrefs(data as Prefs | null))
-    supabase.from('ai_operations').select('key,credits').like('key', 'agent_%').then(({ data }) => { const m: Record<string, number> = {}; (data ?? []).forEach((o) => { m[o.key] = o.credits }); setCosts(m) })
+    supabase.from('ai_operations').select('key,credits').like('key', 'agent_%').then(({ data }) => { const m: Record<string, number> = {}; (data ?? []).forEach((o) => { m[o.key] = o.credits }); setCosts(m); setCostsLoaded(true) })
     void loadBalance()
     return () => { void Speech.stop() }
   }, [loadBalance])
@@ -207,6 +208,7 @@ export default function AgentsHub({ initialAgent = 'coach', initialMessage = nul
           )} />
 
         {note ? <View style={{ paddingHorizontal: 12 }}><ErrorText>{note}</ErrorText></View> : null}
+        {costsLoaded && cost === undefined ? <View style={{ paddingHorizontal: 12 }} testID="agents-unavailable"><ErrorText>{L('المدرب الذكي غير مفعّل على هذا الخادم بعد.', 'The AI agents are not enabled on this server yet.')}</ErrorText></View> : null}
 
         {pending && cost !== undefined ? (
           <View style={st.confirm} accessibilityRole="alert" testID="confirm-bar">
