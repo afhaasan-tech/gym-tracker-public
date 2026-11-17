@@ -13,7 +13,7 @@ const ROUTES: Record<string, Record<string, unknown>> = {
   trainer_audio: { provider: 'gemini', model: 'gemini-2.5-flash' }, trainer_video: { provider: 'gemini', model: 'gemini-2.5-flash' },
 }
 const CONV = 'c0000000-0000-4000-8000-000000000001', CONV2 = 'c0000000-0000-4000-8000-000000000002'
-type Tier = 'subscriber' | 'trial' | 'none'
+type Tier = 'subscriber' | 'coins' | 'trial' | 'none'
 type Opts = { tier?: Tier; nutrition?: boolean; balance?: number; mode?: 'mock' | 'live'; provider?: Provider; budget?: boolean; trusted?: boolean; route?: Record<string, unknown>; configured?: string[]; trialMax?: number; accessFails?: boolean }
 function world(over: Partial<Deps> = {}, opts: Opts = {}) {
   const s = {
@@ -458,4 +458,22 @@ Deno.test('schemas: lenient clamping/truncation, strict shape', () => {
   eq(workoutPlan.safeParse({ title: 't', days: [{ day_label: 'D', focus: 'F', exercises: [] }], notes: '' }).success, false, 'a day needs at least one exercise')
   eq(workoutPlan.safeParse({ title: 't', days: [], notes: '' }).success, false, 'a plan needs at least one day')
   eq(validateOutput('[]').ok || validateOutput('').ok || validateOutput('{"voice_script":"x"}').ok, false, 'garbage rejected')
+})
+
+// ================================================================= pay-as-you-go (VORA Coins without a subscription)
+Deno.test('coins tier: confirms the exact cost, charges it, and gets no plan and no nutrition', async () => {
+  let w = world({}, { tier: 'coins', balance: 120 })
+  let r = await handleTrainer(w.d, 'u1', req({ confirm_credits: -1 }))
+  eq([r.status, (r.body as B).error, (r.body as B).credits], [409, 'confirmation_required', 50], 'cost is disclosed before charging'); eq([w.s.balance, w.s.calls, w.s.consumeCalls], [120, 0, 0], 'nothing charged, no provider call, trial untouched')
+  r = await handleTrainer(w.d, 'u1', req({ idempotency_key: 'coins-idem-000001' })); let b = r.body as B
+  eq([r.status, b.credits_charged, w.s.balance, b.access.tier, b.access.nutrition, b.access.trial_remaining], [200, 50, 70, 'coins', false, null], 'charged 50 coins')
+  r = await handleTrainer(w.d, 'u1', req({ idempotency_key: 'coins-idem-000001' })); eq([(r.body as B).replay, w.s.balance], [true, 70], 'a retry is never charged twice')
+  r = await handleTrainer(w.d, 'u1', req({ idempotency_key: 'coins-idem-000002' })); eq(w.s.balance, 20, 'second message')
+  r = await handleTrainer(w.d, 'u1', req({ idempotency_key: 'coins-idem-000003' })); eq([r.status, (r.body as B).error, w.s.balance], [402, 'insufficient_credits', 20], 'insufficient balance: refused, nothing taken')
+  w = world({}, { tier: 'coins' }); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a recipe', language: 'en' }))).body as B
+  eq([b.meal_card, b.locked], [null, ['nutrition']], 'no nutrition for coin-only members')
+  w = world({}, { tier: 'coins' }); b = (await handleTrainer(w.d, 'u1', req({ message: 'give me a weekly plan', language: 'en' }))).body as B
+  eq([b.workout_plan, b.locked], [null, ['plan']], 'no personalised plan for coin-only members')
+  w = world({ settle: () => Promise.reject(new Error('x')) }, { tier: 'coins', provider: { name: 'mock', call: () => Promise.reject(new Error('down')) } })
+  r = await handleTrainer(w.d, 'u1', req()); eq(w.s.balance, 2500, 'provider failure releases the reservation')
 })

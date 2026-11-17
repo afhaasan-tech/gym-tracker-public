@@ -317,4 +317,12 @@ select t_srv();
 select t_ok($$select subscription_activate('d4000000-0000-4000-8000-000000000007'::uuid, 'pro', now() + interval '30 days', true, 'act-u7-pro-001')$$,'user 7 subscribes without ever using the trial');
 select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000007'::uuid) @> '{"tier":"subscriber","trial":{"started":false,"available":true}}'$$,1,'subscriber tier wins; trial untouched');
 select t_su(); select t_count($$select 1 from trainer_trials where user_id='d4000000-0000-4000-8000-000000000007'$$,0,'no trial row was created by subscribing');
+-- pay-as-you-go: purchased VORA Coins open the trainer after the trial; promotional credits alone never do
+select t_srv();
+select t_ok($$select credit_grant('d4000000-0000-4000-8000-000000000005'::uuid, 'promo', 500, 'grant', 'coins-test-promo-1', 'test promo')$$,'promo credits granted to a member whose trial ended');
+select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000005'::uuid) @> '{"tier":"none","purchased_coins":0}'$$,1,'promo credits alone do NOT open the trainer');
+select t_ok($$select credit_grant('d4000000-0000-4000-8000-000000000005'::uuid, 'purchased', 100, 'grant', 'coins-test-buy-1', 'test purchase')$$,'purchased coins granted');
+select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000005'::uuid) @> '{"tier":"coins","nutrition":false,"plan_key":null,"purchased_coins":100}'$$,1,'purchased coins => tier coins, no nutrition, no plan');
+select t_count($$select 1 where trainer_access('d4000000-0000-4000-8000-000000000007'::uuid) @> '{"tier":"subscriber"}'$$,1,'subscriber tier is unaffected');
+select t_su(); select t_count($$select 1 from credit_ledger where user_id='d4000000-0000-4000-8000-000000000005' and idempotency_key='coins-test-promo-1' and amount=500$$,1,'promo balance is kept in the ledger (nothing confiscated)');
 select 'PASS '||label from t_results where ok union all select 'FAIL '||label from t_results where not ok union all select 'TOTAL pass='||count(*) filter (where ok)||' fail='||count(*) filter (where not ok) from t_results;

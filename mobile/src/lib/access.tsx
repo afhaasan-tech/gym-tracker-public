@@ -1,9 +1,9 @@
-// What the signed-in member may use: free trial conversation, or an active subscription. The server decides; this mirrors it.
+// What the signed-in member may use: the free trial conversation, pay-as-you-go VORA Coins, or an active subscription. The server decides; this mirrors it.
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
 export type Access = {
-  tier: 'subscriber' | 'trial' | 'none'; plan_key: string | null; nutrition: boolean; period_end: string | null; auto_renew: boolean | null
+  tier: 'subscriber' | 'coins' | 'trial' | 'none'; purchased_coins?: number; plan_key: string | null; nutrition: boolean; period_end: string | null; auto_renew: boolean | null
   trial: { available: boolean; started: boolean; conversation_id: string | null; remaining: number; ends_at: string | null; ended: boolean; max_messages: number }
 }
 const listeners = new Set<() => void>()

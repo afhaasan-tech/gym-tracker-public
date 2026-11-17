@@ -72,7 +72,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
 
   const patch = (id: string, f: (m: ChatMessage) => ChatMessage) => setMessages((p) => p.map((m) => (m.id === id ? f(m) : m)))
   const errorText = useCallback((code: string | undefined, status: number) =>
-    code === 'insufficient_credits' ? L('رصيدك غير كافٍ لهذا الطلب.', 'Not enough credits for this request.')
+    code === 'insufficient_credits' ? L('ما عندك ڤورا كوينز كفاية لهذا الطلب.', 'Not enough VORA Coins for this request.')
     : code === 'device_not_trusted' ? L('هذا الجهاز لم يعد موثّقاً. أكّد الجهاز مرة ثانية.', 'This device is no longer trusted. Verify it again.')
     : code === 'input_rejected' ? L('الرسالة فيها محتوى غير مسموح. اكتبها بصيغة ثانية.', 'That message contains content we cannot accept. Please rephrase.')
     : code === 'attachment_too_large' ? L('الملف كبير. الحد: صورة 4 ميغا، صوت 5، فيديو 12.', 'File too large. Limits: photo 4 MB, audio 5 MB, video 12 MB.')
@@ -120,7 +120,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
   const submit = useCallback((draft: Draft) => {
     if (busy || blocked || !conversation || (!draft.text.trim() && !draft.attachment)) return
     // trial: free, no confirmation. subscriber: ask the server for the exact price first (it answers 409 with the amount).
-    void run({ text: draft.text.trim(), attachment: draft.attachment }, tier === 'subscriber' ? -1 : 0)
+    void run({ text: draft.text.trim(), attachment: draft.attachment }, tier === 'subscriber' || tier === 'coins' ? -1 : 0)
   }, [busy, blocked, conversation, tier, run])
 
   // ---- media: explicit one-time consent, then the system permission prompt
@@ -170,7 +170,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
 
   const canSend = (input.trim().length > 0 || attachment !== null) && !busy && !blocked && !unavailable && !recording && conversation !== null
   const kindLabel = (k: Attachment['kind']) => k === 'image' ? L('صورة', 'Photo') : k === 'video' ? L('فيديو', 'Video') : L('رسالة صوتية', 'Voice message')
-  const badge = !loaded ? '…' : unavailable ? '—' : tier === 'subscriber' ? L('مشترك', 'Subscriber')
+  const badge = !loaded ? '…' : unavailable ? '—' : tier === 'subscriber' ? L('مشترك', 'Subscriber') : tier === 'coins' ? L('ڤورا كوينز', 'VORA Coins')
     : tier === 'trial' ? (access?.trial.started ? L(`تجربة مجانية: باقي ${access.trial.remaining}`, `Free trial: ${access.trial.remaining} left`) : L('تجربة مجانية وحدة', 'One free trial')) : L('انتهت التجربة', 'Trial ended')
 
   return (
@@ -206,7 +206,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
               {m.role === 'assistant' && !m.pending && !m.error ? (
                 <View style={st.meta}>
                   {m.mock ? <T muted size={fs.xs} testID="mock-label">{L('رد تجريبي (بدون ذكاء اصطناعي حقيقي)', 'Mock reply (no real AI)')}</T> : null}
-                  {typeof m.charged === 'number' && m.charged > 0 ? <T muted size={fs.xs}>{L(`خُصم ${m.charged} رصيد`, `${m.charged} credits charged`)}</T> : null}
+                  {typeof m.charged === 'number' && m.charged > 0 ? <T muted size={fs.xs}>{L(`خُصم ${m.charged} ڤورا كوينز`, `${m.charged} VORA Coins charged`)}</T> : null}
                   {m.voiceScript ? <Pressable accessibilityRole="button" onPress={() => Speech.speak(m.voiceScript!, { language: speechLang, rate: 0.95 })}><T size={fs.xs} style={{ color: c.accent }}>🔊 {L('استمع', 'Listen')}</T></Pressable> : null}
                 </View>
               ) : null}
@@ -217,7 +217,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
               {m.locked && m.locked.length > 0 ? (
                 <View style={st.info} testID="locked-note">
                   <T size={fs.xs} style={{ color: c.gold }}>🔒 {m.locked.includes('nutrition') ? L('التغذية ضمن الباقات اللي تشملها.', 'Nutrition is included in eligible plans.') : L('الخطط الشخصية الكاملة للمشتركين.', 'Full personalised plans are for subscribers.')}</T>
-                  <Button variant="link" label={L('شوف الباقات', 'See plans')} onPress={() => router.push('/store')} />
+                  <Button variant="link" label={L('الباقات وڤورا كوينز', 'Plans & VORA Coins')} onPress={() => router.push('/store')} />
                 </View>
               ) : null}
             </View>
@@ -229,8 +229,8 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
         {blocked ? (
           <Card style={{ margin: 12 }} testID="paywall">
             <T bold>{L('انتهت تجربتك المجانية', 'Your free trial has ended')}</T>
-            <T muted size={fs.sm}>{L('عشان تكمل مع مدربك الشخصي وخططك، اشترك بباقة.', 'Subscribe to a plan to continue with your personal trainer and plans.')}</T>
-            <Button testID="paywall-plans" label={L('شوف الباقات', 'See plans')} onPress={() => router.push('/store')} />
+            <T muted size={fs.sm}>{L('عشان تكمل مع مدربك: اشترك بباقة (خطط وتغذية حسب الباقة)، أو اشترِ ڤورا كوينز وادفع على قد استخدامك.', 'To continue with your trainer: subscribe to a plan (plans and nutrition as included), or buy VORA Coins and pay as you go.')}</T>
+            <Button testID="paywall-plans" label={L('الباقات وڤورا كوينز', 'Plans & VORA Coins')} onPress={() => router.push('/store')} />
           </Card>
         ) : askConsent ? (
           <Card style={{ margin: 12 }} testID="media-consent">
@@ -243,7 +243,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
           </Card>
         ) : confirm ? (
           <View style={st.confirm} accessibilityRole="alert" testID="confirm-bar">
-            <T size={fs.sm}>{L(`سيتم خصم ${confirm.credits} رصيد لهذا الطلب. متابعة؟`, `This request will cost ${confirm.credits} credits. Continue?`)}</T>
+            <T size={fs.sm}>{L(`سيتم خصم ${confirm.credits} ڤورا كوينز لهذا الطلب. متابعة؟`, `This request will cost ${confirm.credits} VORA Coins. Continue?`)}</T>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Button testID="confirm" style={{ flex: 1 }} label={L('تأكيد', 'Confirm')} onPress={() => { const x = confirm; setConfirm(null); void run(x.draft, x.credits) }} />
               <Button variant="outline" style={{ flex: 1 }} label={L('إلغاء', 'Cancel')} onPress={() => setConfirm(null)} />
@@ -282,7 +282,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
               </View>
             )}
             <T muted size={fs.xs} style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
-              {tier === 'subscriber' ? L('سعر كل طلب يظهر لك قبل الخصم. مدربك للياقة فقط، وليس بديلاً عن الطبيب.', 'The price of each request is shown before charging. Your trainer covers fitness only and is not a substitute for a doctor.')
+              {tier === 'subscriber' || tier === 'coins' ? L('سعر كل طلب يظهر لك قبل الخصم. مدربك للياقة فقط، وليس بديلاً عن الطبيب.', 'The price of each request is shown before charging. Your trainer covers fitness only and is not a substitute for a doctor.')
                 : L('تجربة مجانية: محادثة وحدة بعدد رسائل محدود. مدربك للياقة فقط، وليس بديلاً عن الطبيب.', 'Free trial: one conversation with a limited number of messages. Your trainer covers fitness only and is not a substitute for a doctor.')}
             </T>
           </>

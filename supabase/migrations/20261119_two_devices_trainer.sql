@@ -121,7 +121,7 @@ insert into public.ai_routes (operation_key, provider, model, max_output_tokens)
 on conflict (operation_key) do nothing;
 
 alter table public.ai_jobs add column if not exists conversation_id uuid;
-alter table public.ai_jobs add column if not exists tier text check (tier in ('trial','subscriber'));
+alter table public.ai_jobs add column if not exists tier text check (tier in ('trial','subscriber','coins'));
 alter table public.ai_jobs add column if not exists media_kinds text[];          -- kinds only ('image' ...): media itself is never stored
 grant select (conversation_id, tier, media_kinds) on public.ai_jobs to authenticated;
 
@@ -224,7 +224,7 @@ revoke all on public.trainer_settings, public.trainer_trials from public, anon, 
 
 create or replace function public.trainer_access(p_user uuid) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare st record; s record; t record; has_sub boolean; started boolean; ended boolean; remaining int; tier text;
+declare st record; s record; t record; has_sub boolean; started boolean; ended boolean; remaining int; tier text; paid bigint;
 begin
   if p_user is null then raise exception 'user required' using errcode = '22023'; end if;
   select * into st from public.trainer_settings where id = 1;
@@ -236,9 +236,13 @@ begin
   started := found;
   ended := started and (t.ended_at is not null or t.messages_used >= st.trial_max_messages or t.started_at + make_interval(hours => st.trial_window_hours) <= now());
   remaining := case when not started then st.trial_max_messages when ended then 0 else st.trial_max_messages - t.messages_used end;
-  tier := case when has_sub then 'subscriber' when not ended then 'trial' else 'none' end;
+  -- Pay-as-you-go: a member holding PURCHASED VORA Coins may chat without a subscription (no plans, no nutrition).
+  -- Promotional credits alone never open the trainer; they stay in the ledger untouched and are spendable by paying members.
+  paid := public.credit_source_balance(p_user, 'purchased');
+  tier := case when has_sub then 'subscriber' when not ended then 'trial' when paid > 0 then 'coins' else 'none' end;
   return jsonb_build_object(
     'tier', tier,
+    'purchased_coins', paid,
     'plan_key', case when has_sub then s.plan_key end,
     'nutrition', has_sub and s.nutrition,
     'period_end', case when has_sub then s.current_period_end end,

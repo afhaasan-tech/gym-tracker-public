@@ -20,13 +20,13 @@ export default function Wallet() {
     supabase.from('credit_ledger').select('id,source,entry_type,amount,created_at').order('id', { ascending: false }).limit(30).then(({ data }) => { if (alive) setRows((data ?? []) as Row[]) })
     return () => { alive = false }
   }, [L]))
-  const src: Record<string, string> = { promo: L('رصيد تجريبي', 'Trial credits'), purchased: L('مشترى', 'Purchased'), reward: L('مكافآت', 'Rewards'), subscription: L('الاشتراك', 'Subscription') }
+  const src: Record<string, string> = { promo: L('ترويجي', 'Promotional'), purchased: L('مشترى', 'Purchased'), reward: L('مكافآت', 'Rewards'), subscription: L('الاشتراك', 'Subscription') }
   const kind: Record<string, string> = { grant: L('إضافة', 'Added'), purchase: L('شراء', 'Purchase'), reserve: L('طلب ذكاء اصطناعي', 'AI request'), release: L('استرجاع', 'Refund'), expire: L('انتهاء صلاحية', 'Expired'), adjust: L('تعديل', 'Adjustment') }
   return (
     <ScrollView style={{ backgroundColor: c.bg, direction: rtl ? 'rtl' : 'ltr' }} contentContainerStyle={s.pad}>
                 {err ? <ErrorText>{err}</ErrorText> : null}
         <Card>
-          <T muted size={fs.sm}>{L('الرصيد المتاح', 'Available balance')}</T>
+          <T muted size={fs.sm}>{L('ڤورا كوينز المتاحة', 'Available VORA Coins')}</T>
           {bal ? <T bold size={40} testID="balance-total" style={{ lineHeight: 48 }}>{fmt(Number(bal.total ?? 0))}</T> : <Loading />}
           {bal ? (
             <View style={s.row}>
@@ -34,7 +34,7 @@ export default function Wallet() {
               {Number(bal.held ?? 0) > 0 ? <View style={{ backgroundColor: c.goldSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}><T size={fs.xs} style={{ color: c.gold }}>{L('محجوز', 'On hold')}: {fmt(Number(bal.held))}</T></View> : null}
             </View>
           ) : null}
-          <T muted size={fs.sm}>{L('لا توجد مدفوعات حقيقية حالياً. الرصيد التجريبي يُمنح مرة واحدة.', 'No real payments yet. Trial credits are granted once.')}</T>
+          <T muted size={fs.sm}>{L('الكوينز المشتراة ما تنتهي صلاحيتها. سعر كل طلب يظهر لك قبل الخصم.', 'Purchased coins do not expire. The price of each request is shown before charging.')}</T>
         </Card>
         <Card>
           <H2>{L('آخر الحركات', 'Recent activity')}</H2>

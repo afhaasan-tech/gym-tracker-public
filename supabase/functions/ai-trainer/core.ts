@@ -12,7 +12,7 @@ import { type Lockable, validateOutput } from './schemas.ts'
 export type Operation = { key: string; credits: number; enabled: boolean }
 export type Route = { provider: string; model: string; max_output_tokens: number; fallback_provider?: string | null; fallback_model?: string | null }
 export type Job = { id?: string; status: 'running' | 'done' | 'failed'; response_text?: string | null; operation_key: string }
-export type Access = { tier: 'subscriber' | 'trial' | 'none'; nutrition: boolean; plan_key?: string | null; trial?: { remaining?: number } | null }
+export type Access = { tier: 'subscriber' | 'coins' | 'trial' | 'none'; nutrition: boolean; plan_key?: string | null; trial?: { remaining?: number } | null }
 export type TrialResult = { allowed: boolean; remaining?: number; reason?: string }
 export class CreditError extends Error { constructor(public code: string) { super(code) } }
 
@@ -22,7 +22,7 @@ export interface Deps {
   getRoute(key: string): Promise<Route | null>
   rateLimit(bucket: string, limit: number, windowSeconds: number): Promise<{ allowed: boolean; retryAfter: number }>
   findJob(userId: string, idem: string): Promise<Job | null>
-  createJob(j: { userId: string; idem: string; operation: string; persona: Persona; language: Lang; request: string; conversationId: string; tier: 'trial' | 'subscriber'; mediaKinds: MediaKind[] }): Promise<{ created: boolean }>
+  createJob(j: { userId: string; idem: string; operation: string; persona: Persona; language: Lang; request: string; conversationId: string; tier: 'trial' | 'subscriber' | 'coins'; mediaKinds: MediaKind[] }): Promise<{ created: boolean }>
   attachReservation(userId: string, idem: string, reservationId: string): Promise<void>
   reserve(userId: string, operation: string, idem: string): Promise<{ reservationId: string; credits: number }>   // throws CreditError
   settle(reservationId: string, userId: string): Promise<void>
@@ -143,7 +143,7 @@ const LOCKED_TEXT: Record<Lang, Record<Lockable, string>> = {
 }
 const NO_SAFETY = { injury_reported: false, injured_area: null, refused: false, refusal_reason: null, urgent: false }
 const accessOut = (a: Access | null, trialRemaining: number | null) => (a ? { tier: a.tier, nutrition: a.tier === 'subscriber' && a.nutrition === true, trial_remaining: trialRemaining } : null)
-const trialLeft = (a: Access | null) => (a && a.tier !== 'subscriber' && typeof a.trial?.remaining === 'number' ? a.trial.remaining : null)
+const trialLeft = (a: Access | null) => (a && a.tier === 'trial' && typeof a.trial?.remaining === 'number' ? a.trial.remaining : null)
 
 /** Fixed answer written by the server (no provider, nothing charged, no trial message used). */
 function fixedReply(requestId: string, inp: Input, text: { chat_reply: string; voice_script: string }, safety: Record<string, unknown>, access: Access | null, note: string | null = null): Out {
@@ -184,8 +184,10 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
     if (!lim.allowed) return { status: 429, body: { error: 'rate_limited', retry_after: lim.retryAfter } }
     return fixedReply(requestId, inp, URGENT_REPLY[inp.language], { urgent: true }, { ...access, tier: 'none' })
   }
-  if (access.tier !== 'subscriber' && access.tier !== 'trial') return noAccess('subscription_required')
+  if (access.tier !== 'subscriber' && access.tier !== 'trial' && access.tier !== 'coins') return noAccess('subscription_required')
   const tier = access.tier
+  // subscribers and pay-as-you-go members pay VORA Coins per request; only the subscription unlocks plans and nutrition
+  const pays = tier !== 'trial'
   const nutrition = tier === 'subscriber' && access.nutrition === true
 
   const operation = OPERATION[kind ?? 'text']
@@ -194,7 +196,7 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
   if (!op || !op.enabled || !route) return { status: 503, body: { error: 'provider_unavailable' } }
 
   // ---- 4. subscribers confirm the exact server-side cost; the trial has no credits and no confirmation
-  if (tier === 'subscriber' && inp.confirm !== op.credits) return { status: 409, body: { error: 'confirmation_required', credits: op.credits, operation } }
+  if (pays && inp.confirm !== op.credits) return { status: 409, body: { error: 'confirmation_required', credits: op.credits, operation } }
 
   // ---- 5. replay / in-flight protection (a retry or double click never calls the provider, charges or uses a trial message twice)
   const existing = await d.findJob(userId, inp.idem)
@@ -208,7 +210,7 @@ export async function handleTrainer(d: Deps, userId: string, body: Record<string
 
   // ---- 7. pay: reserve credits (subscriber) or take one message of the trial conversation (both atomic in the database)
   let reservationId: string | null = null, trialRemaining: number | null = null
-  if (tier === 'subscriber') {
+  if (pays) {
     let reservation: { reservationId: string; credits: number }
     try { reservation = await d.reserve(userId, operation, inp.idem) }
     catch (e) {

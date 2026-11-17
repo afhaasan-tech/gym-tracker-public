@@ -32,7 +32,7 @@ export default function Profile() {
         <H1>{L('حسابي', 'My account')}</H1>
         <T muted testID="profile-email" style={{ textAlign: 'left' }}>{session?.user.email ?? ''}</T>
 
-        <H2>{L('الرصيد', 'Credits')}</H2>
+        <H2>{L('ڤورا كوينز', 'VORA Coins')}</H2>
         <Card>
           <T bold size={32} testID="profile-balance" style={{ lineHeight: 40 }}>{balance === null ? '…' : new Intl.NumberFormat('en-US').format(balance)}</T>
           <Button testID="open-wallet" variant="outline" label={L('المحفظة والحركات', 'Wallet & activity')} onPress={() => router.push('/wallet')} />
@@ -41,9 +41,10 @@ export default function Profile() {
         <H2>{L('الاشتراك', 'Subscription')}</H2>
         <Card>
           <T testID="profile-tier">{access?.tier === 'subscriber' ? L(`مشترك — باقة ${access.plan_key}`, `Subscriber — ${access.plan_key} plan`)
+            : access?.tier === 'coins' ? L('بدون اشتراك: تدفع بڤورا كوينز على قد استخدامك.', 'No subscription: you pay as you go with VORA Coins.')
             : access?.tier === 'trial' ? L('حساب مجاني: عندك محادثة تجريبية وحدة مع المدرب.', 'Free account: you have one trial conversation with the trainer.')
             : access ? L('حساب مجاني: انتهت المحادثة التجريبية.', 'Free account: the trial conversation has ended.') : '…'}</T>
-          <Button testID="open-store" variant="outline" label={L('⭐ الباقات والاشتراك', '⭐ Plans & subscription')} onPress={() => router.push('/store')} />
+          <Button testID="open-store" variant="outline" label={L('⭐ الباقات وڤورا كوينز', '⭐ Plans & VORA Coins')} onPress={() => router.push('/store')} />
         </Card>
 
         <H2>{L('المدرب والخصوصية', 'Coach & privacy')}</H2>

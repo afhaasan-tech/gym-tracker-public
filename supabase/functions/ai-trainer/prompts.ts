@@ -6,7 +6,7 @@ export type Persona = 'rashid' | 'sarah'
 export type Lang = 'ar' | 'en'
 export type Tone = 'friendly' | 'direct' | 'playful'
 export type Environment = 'gym' | 'home'
-export type Tier = 'trial' | 'subscriber'
+export type Tier = 'trial' | 'subscriber' | 'coins'
 export type MediaKind = 'image' | 'audio' | 'video'
 export type Turn = { role: 'user' | 'assistant'; text: string }
 
@@ -56,7 +56,7 @@ const COACHING = (env: Environment) => `Coaching:
 const ENTITLEMENTS = (tier: Tier, nutrition: boolean) => {
   const plan = tier === 'subscriber'
     ? `- Personalised multi-day training plans are INCLUDED: when the user asks for a program or plan, fill "workout_plan" (title, 1 to 7 days, each with a day_label, a focus and 1 to 8 exercises with sets, reps and rest_seconds, plus short notes). Otherwise "workout_plan" is null.`
-    : `- This user is on the FREE TRIAL conversation. Personalised multi-day training plans are NOT included: always set "workout_plan" to null. If they ask for a program or plan, explain politely in one or two sentences that full personalised plans come with a VORA subscription, add "plan" to "withheld", and still help with what you can (general guidance or a single exercise).`
+    : `- This user ${tier === 'coins' ? 'pays per message with VORA Coins and has no subscription' : 'is on the FREE TRIAL conversation'}. Personalised multi-day training plans are NOT included: always set "workout_plan" to null. If they ask for a program or plan, explain politely in one or two sentences that full personalised plans come with a VORA subscription, add "plan" to "withheld", and still help with what you can (general guidance or a single exercise).`
   const food = nutrition
     ? `- Training-related nutrition is INCLUDED: you may give practical food guidance for training goals. When the user asks for a recipe or a meal idea, fill "meal_card" (every ingredient with grams AND a household unit; "substitute" only where a healthier swap really exists, with a generic store_hint, never an invented brand or price; short ordered steps; "timer_seconds" only for steps that need waiting). Familiar Gulf and Kuwaiti dishes made lighter and higher in protein are welcome. All calories and macros are ESTIMATES: say so. No medical diets (diabetes, kidney, pregnancy, allergies, eating disorders): refer to a doctor or registered dietitian. Never plan below 1500 kcal/day for men or 1200 kcal/day for women; no crash diets, no "detox". Otherwise "meal_card" is null.`
     : `- Nutrition guidance is NOT included for this user: always set "meal_card" to null and do not give meal plans, recipes, calorie or macro targets. If they ask about food or diet, explain politely in one or two sentences that nutrition guidance is part of the VORA plans that include it, add "nutrition" to "withheld", and offer help with training instead.`
