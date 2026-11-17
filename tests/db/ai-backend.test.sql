@@ -59,7 +59,7 @@ select t_count($$select 1 from rate_limit_hit('u:1', 3, interval '1 minute') whe
 
 -- routes, jobs, privacy
 select t_su();
-select t_count($$select 1 from ai_routes$$,8,'eight routes seeded (one per operation, incl. the three agents)');
+select t_count($$select 1 from ai_routes$$,9,'nine routes seeded (incl. the four trainer operations)');
 insert into credit_reservations(id,user_id,operation_key,credits,idempotency_key,expires_at) values ('c1000000-0000-4000-8000-0000000000f1','c1000000-0000-4000-8000-000000000001','quick_question',50,'job-res-0001',now()+interval '10 minutes');
 select t_srv();
 select t_ok($$insert into ai_jobs(user_id,idempotency_key,operation_key,reservation_id,persona,language,request_text) values ('c1000000-0000-4000-8000-000000000001','job-key-0001','quick_question','c1000000-0000-4000-8000-0000000000f1','rashid','ar','سؤال')$$,'service role records a job');

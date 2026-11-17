@@ -1,15 +1,12 @@
-// Validation of what a MODEL returned, per agent role. Lenient on size (long text is truncated, numbers are clamped, extra keys and
+// Validation of what a MODEL returned for the VORA trainer. Lenient on size (long text is truncated, numbers are clamped, extra keys and
 // extra array items are dropped) so a verbose model cannot break the apps; strict on shape (missing card fields, wrong enums) so the
-// apps can render a card without defensive code. Anything that does not validate is treated as a provider failure (credits released).
+// apps can render a card without defensive code. Anything that does not validate is treated as a provider failure (nothing is charged).
 import { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts'   // zod v3 (URL import: identical in Supabase Edge and in local deno test next to the repo package.json)
 import { cleanOutput } from './sanitize.ts'
 
-export const ROLES = ['coach', 'nutritionist', 'support'] as const
-export type AgentRole = typeof ROLES[number]
 export const MUSCLES = ['back', 'chest', 'shoulders', 'biceps', 'triceps', 'forearms', 'hips', 'calf', 'abs'] as const
-export const TICKET_CATEGORIES = ['billing', 'technical', 'device_limit', 'renewal', 'other'] as const
-export const TICKET_PRIORITIES = ['low', 'normal', 'high'] as const
-export const SUPPORT_ACTIONS = ['cancel_renewal', 'manage_devices', 'open_plans', 'retry_payment'] as const
+export const LOCKABLE = ['nutrition', 'plan'] as const
+export type Lockable = typeof LOCKABLE[number]
 
 const toText = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : v)
 /** required, non-empty text, truncated to max */
@@ -29,7 +26,7 @@ const softList = <T extends z.ZodTypeAny>(item: T, max: number) =>
   z.preprocess((v) => (Array.isArray(v) ? v : []), z.array(z.unknown())).transform((a) => a.map((x) => item.safeParse(x)).filter((r) => r.success).map((r) => (r as z.SafeParseSuccess<z.infer<T>>).data).slice(0, max))
 const nullish = <T extends z.ZodTypeAny>(s: T) => z.preprocess((v) => (v === undefined ? null : v), s.nullable())
 
-// ---------------------------------------------------------------- coach
+// ---------------------------------------------------------------- one exercise
 export const workoutCard = z.object({
   exercise_name_ar: text(80),
   exercise_name_en: text(80),
@@ -43,20 +40,21 @@ export const workoutCard = z.object({
   posture_cues: softList(text(200), 5).refine((a) => a.length >= 2, 'at least two posture cues'),
   alternative: z.preprocess((v) => (v === undefined ? null : v), z.object({ name_ar: text(80), reason_ar: text(200) }).nullable()).catch(null),
 })
-const safety = z.object({
-  injury_reported: softBool,
-  injured_area: nullableText(60).catch(null),
-  refused: softBool,
-  refusal_reason: nullableText(200).catch(null),
+
+// ---------------------------------------------------------------- multi-day personalised plan (subscribers only: enforced in core.ts)
+const planExercise = z.object({ name: text(80), sets: int(1, 10), reps: text(24), rest_seconds: int(0, 600) })
+const planDay = z.object({
+  day_label: text(40),
+  focus: text(80),
+  exercises: list(planExercise, 8).refine((a) => a.length >= 1, 'no exercises'),
 })
-export const coachOutput = z.object({
-  chat_reply: text(2000),
-  voice_script: softText(700),
-  safety: z.preprocess((v) => (v && typeof v === 'object' ? v : {}), safety),
-  workout_card: nullish(workoutCard),
+export const workoutPlan = z.object({
+  title: text(100),
+  days: list(planDay, 7).refine((a) => a.length >= 1, 'no days'),
+  notes: softText(600),
 })
 
-// ---------------------------------------------------------------- nutritionist
+// ---------------------------------------------------------------- one meal (plans with nutrition only: enforced in core.ts)
 const macros = z.object({ calories: num(0, 5000), protein_g: num(0, 500), carbs_g: num(0, 800), fat_g: num(0, 400) })
 const macrosDelta = z.object({ calories: num(-3000, 3000), protein_g: num(-300, 300), carbs_g: num(-500, 500), fat_g: num(-300, 300) })
 const substitute = z.object({ name_ar: text(80), store_hint: softText(100), grams: num(0, 5000), household_unit: softText(60), macros_delta_per_serving: macrosDelta })
@@ -72,32 +70,26 @@ export const mealCard = z.object({
   ingredients: list(z.object({ name_ar: text(80), grams: num(0, 5000), household_unit: softText(60), substitute: nullish(substitute).catch(null) }), 25).refine((a) => a.length >= 1, 'no ingredients'),
   steps: list(z.object({ text_ar: text(500), timer_seconds: z.preprocess((v) => (v === undefined ? null : v), int(0, 14400).nullable()).catch(null) }), 15).refine((a) => a.length >= 1, 'no steps'),
 })
-export const nutritionistOutput = z.object({
+
+const safety = z.object({
+  injury_reported: softBool,
+  injured_area: nullableText(60).catch(null),
+  refused: softBool,
+  refusal_reason: nullableText(200).catch(null),
+  urgent: softBool,
+})
+export const trainerOutput = z.object({
   chat_reply: text(2000),
   voice_script: softText(700),
+  off_topic: softBool,
+  safety: z.preprocess((v) => (v && typeof v === 'object' ? v : {}), safety),
+  workout_card: nullish(workoutCard),
+  workout_plan: nullish(workoutPlan),
   meal_card: nullish(mealCard),
+  /** what the member asked for but the model held back because of the plan (a UI hint only: entitlements are decided in core.ts) */
+  withheld: softList(z.preprocess(lower, z.enum(LOCKABLE)), 2),
 })
-
-// ---------------------------------------------------------------- support
-export const ticketDraft = z.object({
-  category: z.preprocess(lower, z.enum(TICKET_CATEGORIES)).catch('other'),
-  priority: z.preprocess(lower, z.enum(TICKET_PRIORITIES)).catch('normal'),
-  summary: text(1000),
-})
-export const supportOutput = z.object({
-  chat_reply: text(2000),
-  voice_script: softText(700),
-  resolved: bool,
-  create_support_ticket: bool,
-  ticket_draft: nullish(ticketDraft).catch(null),
-  suggested_actions: softList(z.object({ action: z.preprocess(lower, z.enum(SUPPORT_ACTIONS)), label_ar: text(60) }), 3),
-})
-
-export type CoachOutput = z.infer<typeof coachOutput>
-export type NutritionistOutput = z.infer<typeof nutritionistOutput>
-export type SupportOutput = z.infer<typeof supportOutput>
-export type AgentOutput = CoachOutput | NutritionistOutput | SupportOutput
-const SCHEMAS = { coach: coachOutput, nutritionist: nutritionistOutput, support: supportOutput } as const
+export type TrainerOutput = z.infer<typeof trainerOutput>
 
 /** Extracts the single JSON object from a model answer (tolerates code fences or a stray sentence around it). */
 export function parseModelJson(raw: string): unknown {
@@ -107,9 +99,33 @@ export function parseModelJson(raw: string): unknown {
   try { return JSON.parse(s.slice(a, b + 1)) } catch { return undefined }
 }
 
-export function validateOutput(role: AgentRole, raw: string): { ok: true; data: AgentOutput } | { ok: false; reason: string } {
+export function validateOutput(raw: string): { ok: true; data: TrainerOutput } | { ok: false; reason: string } {
   const obj = parseModelJson(raw)
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, reason: 'not_json' }
-  const r = SCHEMAS[role].safeParse(obj)
-  return r.success ? { ok: true, data: r.data as AgentOutput } : { ok: false, reason: 'schema:' + (r.error.issues[0]?.path.join('.') ?? '') }
+  const r = trainerOutput.safeParse(obj)
+  return r.success ? { ok: true, data: r.data } : { ok: false, reason: 'schema:' + (r.error.issues[0]?.path.join('.') ?? '') }
 }
+
+// ---------------------------------------------------------------- the same shape for Gemini's responseSchema (OpenAPI subset)
+const S = { type: 'STRING' }, I = { type: 'INTEGER' }, N = { type: 'NUMBER' }, B = { type: 'BOOLEAN' }
+const NS = { type: 'STRING', nullable: true }
+const obj = (properties: Record<string, unknown>, required: string[] = Object.keys(properties), nullable = false) => ({ type: 'OBJECT', properties, required, ...(nullable ? { nullable: true } : {}) })
+const arr = (items: unknown) => ({ type: 'ARRAY', items })
+const G_MACROS = { calories: N, protein_g: N, carbs_g: N, fat_g: N }
+export const GEMINI_RESPONSE_SCHEMA = obj({
+  chat_reply: S, voice_script: S, off_topic: B,
+  safety: obj({ injury_reported: B, injured_area: NS, refused: B, refusal_reason: NS, urgent: B }),
+  workout_card: obj({
+    exercise_name_ar: S, exercise_name_en: S, target_muscle: { type: 'STRING', enum: [...MUSCLES] }, secondary_muscles: arr({ type: 'STRING', enum: [...MUSCLES] }),
+    environment: { type: 'STRING', enum: ['gym', 'home'] }, equipment: S, sets: I, reps: S, rest_seconds: I, posture_cues: arr(S),
+    alternative: obj({ name_ar: S, reason_ar: S }, ['name_ar', 'reason_ar'], true),
+  }, ['exercise_name_ar', 'exercise_name_en', 'target_muscle', 'environment', 'equipment', 'sets', 'reps', 'rest_seconds', 'posture_cues'], true),
+  workout_plan: obj({ title: S, days: arr(obj({ day_label: S, focus: S, exercises: arr(obj({ name: S, sets: I, reps: S, rest_seconds: I })) })), notes: S }, ['title', 'days'], true),
+  meal_card: obj({
+    meal_name_ar: S, meal_name_en: S, servings: I, prep_minutes: I, cook_minutes: I, localized_for: NS,
+    macros_per_serving: obj(G_MACROS), macros_with_substitutes: obj(G_MACROS, Object.keys(G_MACROS), true),
+    ingredients: arr(obj({ name_ar: S, grams: N, household_unit: S, substitute: obj({ name_ar: S, store_hint: S, grams: N, household_unit: S, macros_delta_per_serving: obj(G_MACROS) }, ['name_ar', 'grams', 'macros_delta_per_serving'], true) }, ['name_ar', 'grams', 'household_unit'])),
+    steps: arr(obj({ text_ar: S, timer_seconds: { type: 'INTEGER', nullable: true } }, ['text_ar'])),
+  }, ['meal_name_ar', 'meal_name_en', 'servings', 'prep_minutes', 'cook_minutes', 'macros_per_serving', 'ingredients', 'steps'], true),
+  withheld: arr({ type: 'STRING', enum: [...LOCKABLE] }),
+}, ['chat_reply', 'voice_script', 'off_topic', 'safety'])

@@ -37,9 +37,9 @@ export default function Home() {
         <Card><T>{quote}</T></Card>
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <Button testID="home-workout" style={{ flex: 1 }} label={L('💪 تمرين اليوم', "💪 Today's workout")} onPress={() => router.push('/workouts')} />
-          <Button testID="home-recipe" style={{ flex: 1 }} variant="outline" label={L('🥗 وصفة', '🥗 Recipe')} onPress={() => router.push('/nutrition')} />
+          <Button testID="home-recipe" style={{ flex: 1 }} variant="outline" label={L('🥗 التغذية', '🥗 Nutrition')} onPress={() => router.push('/nutrition')} />
         </View>
-        <Button testID="home-coach" variant="outline" label={L('🤖 اسأل المدرب', '🤖 Ask the coach')} onPress={() => router.push('/coach')} />
+        <Button testID="home-coach" variant="outline" label={L('🤖 مدربي الشخصي', '🤖 My personal trainer')} onPress={() => router.push('/coach')} />
         <H2>{L('خطتك لأسبوع', 'Your week plan')}</H2>
         {DAYS.map((d, k) => (
           <Card key={d[0]} testID="plan-day" style={{ paddingVertical: 12 }}>

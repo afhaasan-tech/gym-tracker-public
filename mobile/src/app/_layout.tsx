@@ -24,7 +24,8 @@ function Gate() {
       <Stack.Screen name="onboarding" options={{ title: L('إعداد حسابك', 'Set up your profile'), presentation: 'modal' }} />
       <Stack.Screen name="devices" options={{ title: L('أجهزتي', 'My devices') }} />
       <Stack.Screen name="wallet" options={{ title: L('محفظة الرصيد', 'Credit wallet') }} />
-      <Stack.Screen name="store" options={{ title: L('الباقات', 'Plans') }} />
+      <Stack.Screen name="store" options={{ title: L('الباقات والاشتراك', 'Plans & subscription') }} />
+      <Stack.Screen name="support" options={{ title: L('خدمة العملاء', 'Customer support') }} />
       <Stack.Screen name="recipe/[id]" options={{ title: L('وصفة', 'Recipe') }} />
     </Stack>
   )

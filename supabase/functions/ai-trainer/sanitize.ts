@@ -1,7 +1,8 @@
-// Input hygiene for the agents. Everything here is deterministic and runs BEFORE any credit is reserved or any provider is called.
+// Input hygiene for the trainer. Everything here is deterministic and runs BEFORE any credit is reserved or any provider is called.
 // 1. clean(): strips control, zero-width and bidi-override characters.
 // 2. detectInjection(): prompt-injection / XSS / SQL-injection patterns (English + Arabic) -> the request is rejected (400, nothing charged).
 // 3. medicalCheck(): steroids / hormones / SARMs ... with dosing or buying intent -> fixed refusal without a provider call.
+// 4. urgentCheck(): self-harm / medical-emergency wording. Used ONLY so that a member without AI access gets a safety answer instead of a paywall.
 
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g
 const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\u061C\uFEFF]/g
@@ -84,5 +85,23 @@ export const MEDICAL_REFUSAL = {
   en: {
     chat_reply: 'I am sorry, I cannot help with doses or sources for hormones, steroids or similar substances. That is a medical matter and must be decided and monitored by a qualified doctor. I can help you with a safe training and nutrition plan to reach your goal without them. Shall we start?',
     voice_script: 'Sorry, I cannot help with doses or sources for hormones or steroids. Please see a qualified doctor. I am happy to help with training and nutrition.',
+  },
+} as const
+
+// ---------------------------------------------------------------- urgent safety (deterministic net for members WITHOUT AI access)
+const URGENT_EN = /\b(suicid(e|al)|kill myself|end my life|want to die|self[- ]harm|hurt myself|chest pain|heart attack|can'?t breathe|cannot breathe|overdos(e|ed)|being abused)\b/i
+const URGENT_AR = /(ابي اموت|ابغي اموت|اريد اموت|ودي اموت|انتحر|انتحار|اذي نفسي|ااذي نفسي|اقتل نفسي|الم بالصدر|الم في الصدر|الم بصدري|وجع بالصدر|جلطه|ما اقدر اتنفس|مو قادر اتنفس|جرعه زايده)/
+export function urgentCheck(text: string): boolean {
+  if (!text) return false
+  return URGENT_EN.test(text) || URGENT_AR.test(normAr(text))
+}
+export const URGENT_REPLY = {
+  ar: {
+    chat_reply: 'سلامتك أهم شي. إذا حاس بخطر على نفسك أو عندك عارض صحي طارئ، اتصل على الطوارئ 112 الحين أو روح أقرب مستشفى، وكلّم أحد قريب منك تثق فيه. أنا مدرب لياقة وما أقدر أساعد بهالشي، بس لا تتأخر تطلب المساعدة من مختص.',
+    voice_script: 'سلامتك أهم شي. اتصل على الطوارئ الحين أو روح أقرب مستشفى، وكلّم أحد تثق فيه.',
+  },
+  en: {
+    chat_reply: 'Your safety comes first. If you feel you may be in danger or this is a medical emergency, please call your local emergency number (112 in Kuwait) now or go to the nearest hospital, and reach out to someone you trust. I am a fitness coach and cannot help with this, but please do not wait to get help from a professional.',
+    voice_script: 'Your safety comes first. Please call emergency services now or go to the nearest hospital, and reach out to someone you trust.',
   },
 } as const

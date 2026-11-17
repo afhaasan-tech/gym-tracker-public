@@ -1,4 +1,5 @@
-// Tab order follows the approved app reference: Home · Workouts · Nutrition · Coach · Account.
+// Tab order follows the approved app reference: Home · Workouts · Nutrition · Trainer · Account.
+// The Trainer tab is the ONE AI Personal Trainer; nutrition content is for eligible subscribers.
 import { Tabs } from 'expo-router'
 import { Text } from 'react-native'
 import { useI18n } from '../../lib/i18n'
@@ -13,7 +14,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: L('الرئيسية', 'Home'), tabBarIcon: icon('🏠'), tabBarButtonTestID: 'nav-home' }} />
       <Tabs.Screen name="workouts" options={{ title: L('التمارين', 'Workouts'), tabBarIcon: icon('💪'), tabBarButtonTestID: 'nav-workouts' }} />
       <Tabs.Screen name="nutrition" options={{ title: L('التغذية', 'Nutrition'), tabBarIcon: icon('🥗'), tabBarButtonTestID: 'nav-nutrition' }} />
-      <Tabs.Screen name="coach" options={{ title: L('المدرب', 'Coach'), tabBarIcon: icon('🤖'), tabBarButtonTestID: 'nav-coach' }} />
+      <Tabs.Screen name="coach" options={{ title: L('مدربي', 'Trainer'), tabBarIcon: icon('🤖'), tabBarButtonTestID: 'nav-coach' }} />
       <Tabs.Screen name="profile" options={{ title: L('حسابي', 'Account'), tabBarIcon: icon('👤'), tabBarButtonTestID: 'nav-profile' }} />
     </Tabs>
   )

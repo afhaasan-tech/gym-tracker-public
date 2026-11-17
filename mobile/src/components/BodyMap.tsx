@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import Svg, { Ellipse, G, Path, Rect } from 'react-native-svg'
-import { MUSCLE } from '../features/agents/cards'
-import type { MuscleId } from '../features/agents/types'
+import { MUSCLE } from '../features/trainer/cards'
+import type { MuscleId } from '../features/trainer/types'
 import { useI18n } from '../lib/i18n'
 import { c, fs, r } from '../lib/theme'
 

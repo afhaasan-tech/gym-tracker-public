@@ -34,7 +34,7 @@ end $$;
 select t_su(); select t_u('c2000000-0000-4000-8000-000000000001'), t_u('c2000000-0000-4000-8000-000000000002'), t_u('c2000000-0000-4000-8000-000000000003');
 drop table if exists t_ids; create table t_ids(k text primary key, v text); grant all on t_ids to public;
 
--- ================= A. trusted devices, 6-digit challenge, one active session per device (two devices: two-devices-agents.test.sql)
+-- ================= A. trusted devices, 6-digit challenge, one active session per device (two devices: two-devices-trainer.test.sql)
 select t_srv();
 select t_count($$select 1 where device_status('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), gen_random_uuid()) = 'challenge_required'$$,1,'unknown device => challenge required');
 select t_err($$select device_challenge_create('c2000000-0000-4000-8000-000000000001'::uuid, repeat('a',64), '12345')$$,'code must be exactly 6 digits');

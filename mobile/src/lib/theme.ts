@@ -15,6 +15,6 @@ const night: typeof light = {
   gold: '#FCD34D', goldSoft: 'rgba(245,158,11,0.18)', danger: '#FCA5A5', dangerSoft: 'rgba(239,68,68,0.18)', placeholder: '#94A3B8',
   bodyBase: '#334155', bodyStroke: '#64748B', bodySkin: '#1E293B',
 }
-export const c = { ...(dark ? night : light), coach: '#EF4444', nutritionist: '#059669', support: '#0284C7' } as const
+export const c = dark ? night : light
 export const r = { md: 16, sm: 12, pill: 999 } as const
 export const fs = { xs: 12, sm: 13, md: 15, lg: 17, xl: 22, xxl: 27 } as const

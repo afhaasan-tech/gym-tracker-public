@@ -2,7 +2,7 @@
 // Security rules: the 6-digit code is generated here with a CSPRNG, stored only as a keyed hash in the database, sent ONLY by e-mail and
 // never returned to the caller; every failure answer is generic; only a trusted session may list/revoke devices.
 // Two devices: an account may be active on TWO trusted devices at once. Trust is decided purely by the database
-// (user_active_sessions, see 20261119_two_devices_agents.sql), so this function never signs other sessions out.
+// (user_active_sessions, see 20261119_two_devices_trainer.sql), so this function never signs other sessions out.
 export interface Deps {
   hash(secret: string): Promise<string>                                         // sha256 hex of the client-held device secret
   randomCode(): string                                                          // 6 digits, uniform

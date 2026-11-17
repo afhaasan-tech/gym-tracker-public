@@ -3,7 +3,9 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as Speech from 'expo-speech'
 import { useEffect, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import { Button, Card, H1, H2, T, s } from '../../components/ui'
+import { Locked } from '../../components/Locked'
+import { Button, Card, H1, H2, Loading, T, s } from '../../components/ui'
+import { useAccess } from '../../lib/access'
 import { getRecipe, perServing, whereToBuy } from '../../data/recipes'
 import { useI18n } from '../../lib/i18n'
 import { c, fs, r } from '../../lib/theme'
@@ -34,10 +36,13 @@ export default function RecipeScreen() {
   const { L, rtl } = useI18n()
   const router = useRouter()
   const recipe = getRecipe(String(id))
+  const { access, loaded } = useAccess()
   const [swapped, setSwapped] = useState<Set<string>>(new Set()), [shown, setShown] = useState<Set<string>>(new Set()), [checked, setChecked] = useState<Set<number>>(new Set())
   const [speaking, setSpeaking] = useState(false)
   useEffect(() => () => { void Speech.stop() }, [])
   if (!recipe) return <View style={[s.pad, { flex: 1, backgroundColor: c.bg }]}><T>{L('الوصفة غير موجودة.', 'Recipe not found.')}</T><Button label={L('رجوع', 'Back')} onPress={() => router.back()} /></View>
+  if (!loaded) return <View style={{ flex: 1, backgroundColor: c.bg }}><Loading /></View>
+  if (!(access?.tier === 'subscriber' && access.nutrition)) return <View style={[s.pad, { flex: 1, backgroundColor: c.bg, direction: rtl ? 'rtl' : 'ltr' }]}><Locked title={L('التغذية للمشتركين', 'Nutrition is for subscribers')} body={L('هذي الوصفة ضمن الباقات اللي تشمل التغذية.', 'This recipe is part of plans that include nutrition.')} /></View>
   const m = perServing(recipe, swapped)
   const flip = <K,>(set: Set<K>, k: K) => { const n = new Set(set); if (n.has(k)) n.delete(k); else n.add(k); return n }
   const read = () => {

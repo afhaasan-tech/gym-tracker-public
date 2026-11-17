@@ -113,7 +113,7 @@ select t_srv();
 reset role; select t_as('c0000000-0000-4000-8000-000000000001');
 select t_count($$select 1 from credit_ledger$$,4,'member reads only own ledger rows (grant, 2 holds, 1 release)');
 select t_count($$select 1 from credit_reservations$$,2,'member reads only own reservations');
-select t_count($$select 1 from ai_operations$$,9,'member reads operation prices (incl. the three agent operations)');
+select t_count($$select 1 from ai_operations$$,10,'member reads operation prices (incl. the four trainer operations)');
 select t_err($$insert into credit_ledger(user_id,source,entry_type,amount) values (auth.uid(),'purchased','grant',999999)$$,'member cannot insert credits');
 select t_err($$update credit_ledger set amount=999999$$,'member cannot update the ledger');
 select t_err($$delete from credit_ledger$$,'member cannot delete ledger rows');

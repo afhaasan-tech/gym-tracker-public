@@ -1,4 +1,4 @@
-import type { MuscleId } from "../features/agents/types";
+import type { MuscleId } from "../features/trainer/types";
 export interface Exercise {
   id: string; name: string; muscle: MuscleId; env: "gym" | "home";
   equipment: string; sets: number; reps: string; rest: number; tip: string; beginnerSafe: boolean;

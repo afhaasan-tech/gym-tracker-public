@@ -6,6 +6,7 @@ import { Button, Card, H1, H2, Screen, T, s } from '../../components/ui'
 import { LangToggle } from '../../features/AuthScreens'
 import { useI18n } from '../../lib/i18n'
 import { useSession } from '../../lib/session'
+import { useAccess } from '../../lib/access'
 import { fn, supabase } from '../../lib/supabase'
 import { fs } from '../../lib/theme'
 
@@ -16,6 +17,7 @@ export default function Profile() {
   const { L } = useI18n()
   const { session, signOut } = useSession()
   const router = useRouter()
+  const { access } = useAccess()
   const [balance, setBalance] = useState<number | null>(null), [devices, setDevices] = useState<number | null>(null), [tickets, setTickets] = useState<Ticket[]>([])
   useFocusEffect(useCallback(() => {
     let alive = true
@@ -38,8 +40,10 @@ export default function Profile() {
 
         <H2>{L('الاشتراك', 'Subscription')}</H2>
         <Card>
-          <T>{L('أنت على الرصيد التجريبي. الاشتراكات غير مفعّلة حالياً.', 'You are on trial credits. Subscriptions are not enabled yet.')}</T>
-          <Button testID="open-store" variant="outline" label={L('⭐ شوف الباقات', '⭐ See plans')} onPress={() => router.push('/store')} />
+          <T testID="profile-tier">{access?.tier === 'subscriber' ? L(`مشترك — باقة ${access.plan_key}`, `Subscriber — ${access.plan_key} plan`)
+            : access?.tier === 'trial' ? L('حساب مجاني: عندك محادثة تجريبية وحدة مع المدرب.', 'Free account: you have one trial conversation with the trainer.')
+            : access ? L('حساب مجاني: انتهت المحادثة التجريبية.', 'Free account: the trial conversation has ended.') : '…'}</T>
+          <Button testID="open-store" variant="outline" label={L('⭐ الباقات والاشتراك', '⭐ Plans & subscription')} onPress={() => router.push('/store')} />
         </Card>
 
         <H2>{L('المدرب والخصوصية', 'Coach & privacy')}</H2>
@@ -59,7 +63,7 @@ export default function Profile() {
         ) : null}
 
         <View style={{ gap: 12, marginTop: 8 }}>
-          <Button testID="open-support" variant="outline" label={L('🎧 خدمة العملاء', '🎧 Customer support')} onPress={() => router.push({ pathname: '/coach', params: { agent: 'support' } })} />
+          <Button testID="open-support" variant="outline" label={L('🎧 خدمة العملاء', '🎧 Customer support')} onPress={() => router.push('/support')} />
           <Button testID="sign-out" variant="link" label={L('تسجيل الخروج', 'Sign out')} onPress={signOut} />
         </View>
       </ScrollView>

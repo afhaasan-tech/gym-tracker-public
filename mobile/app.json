@@ -28,7 +28,21 @@
     "plugins": [
       "expo-secure-store",
       "expo-localization",
-      "expo-router"
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "VORA uses the microphone only when you record a voice message for your trainer."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "VORA opens your photos only when you choose a photo or video to send to your trainer.",
+          "cameraPermission": "VORA uses the camera only when you take a photo or video to send to your trainer."
+        }
+      ],
+      "expo-asset"
     ],
     "scheme": "vora",
     "experiments": {

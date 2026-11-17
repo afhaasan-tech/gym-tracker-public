@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router'
 import { Pressable, ScrollView } from 'react-native'
-import { Button, Card, H1, Screen, T, s } from '../../components/ui'
+import { Locked } from '../../components/Locked'
+import { Card, H1, Loading, Screen, T, s } from '../../components/ui'
+import { useAccess } from '../../lib/access'
 import { RECIPES, perServing } from '../../data/recipes'
 import { useI18n } from '../../lib/i18n'
 import { fs } from '../../lib/theme'
@@ -8,10 +10,16 @@ import { fs } from '../../lib/theme'
 export default function Nutrition() {
   const { L } = useI18n()
   const router = useRouter()
+  const { access, loaded } = useAccess()
+  const allowed = access?.tier === 'subscriber' && access.nutrition
   return (
     <Screen>
       <ScrollView contentContainerStyle={[s.pad, { paddingBottom: 40 }]}>
         <H1>{L('وصفات خليجية صحية', 'Healthy Gulf recipes')}</H1>
+        {!loaded ? <Loading /> : !allowed ? (
+          <Locked title={L('التغذية للمشتركين', 'Nutrition is for subscribers')} body={L('الوصفات وإرشاد الأكل جزء من مدربك الشخصي في الباقات اللي تشمل التغذية.', 'Recipes and food guidance are part of your personal trainer in plans that include nutrition.')} />
+        ) : (
+          <>
         <T muted>{L('مقادير وخطوات ومؤقت طبخ لكل وصفة. القيم الغذائية تقديرية.', 'Amounts, steps and a cooking timer for each recipe. Nutrition values are estimates.')}</T>
         {RECIPES.map((rc) => {
           const m = perServing(rc, new Set())
@@ -25,7 +33,8 @@ export default function Nutrition() {
             </Pressable>
           )
         })}
-        <Button testID="ask-nutritionist" variant="outline" label={L('اسأل مساعد التغذية', 'Ask the nutrition assistant')} onPress={() => router.push({ pathname: '/coach', params: { agent: 'nutritionist' } })} />
+          </>
+        )}
       </ScrollView>
     </Screen>
   )
