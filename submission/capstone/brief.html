@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>VORA Project Brief</title>
+<style>
+@page{size:A4;margin:18mm}
+body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1f2a30;font-size:11pt;line-height:1.5;margin:0}
+h1{font-size:22pt;margin:0 0 2px;color:#0a7d70}
+.sub{color:#5e6b72;margin:0 0 14px;font-size:11pt}
+h2{font-size:13pt;margin:16px 0 6px;color:#0a7d70;border-bottom:1px solid #d9e2e0;padding-bottom:3px}
+p{margin:0 0 8px} ul{margin:0 0 8px;padding-left:18px} li{margin-bottom:3px}
+table{border-collapse:collapse;width:100%;margin:4px 0 8px;font-size:10.5pt}
+td,th{border:1px solid #d9e2e0;padding:5px 8px;text-align:left;vertical-align:top} th{background:#eef5f3;width:30%}
+.links td{font-family:Consolas,monospace;font-size:10pt}
+.note{background:#f6f3ec;border:1px solid #e4ded1;border-radius:6px;padding:8px 10px;font-size:10.5pt}
+</style></head><body>
+<h1>VORA | ڤورا</h1>
+<p class="sub">AI-first fitness &amp; nutrition app for Kuwait — Capstone Project Brief · 17 November 2026</p>
+
+<table class="links">
+<tr><th>Live app (Vercel)</th><td>https://gym-tracker-afhaasan.vercel.app</td></tr>
+<tr><th>GitHub repository</th><td>https://github.com/afhaasan-tech/gym-tracker-public</td></tr>
+</table>
+
+<h2>1. What the application is about</h2>
+<p>VORA is a bilingual (Arabic / English) fitness and nutrition web app designed for users in Kuwait. Members log workouts and meals, explore sports and coaches, book and pay for sessions, and chat with an AI coach. It began as a simple gym tracker and grew, over the course, into a full platform with authentication, a marketplace, payments and AI.</p>
+
+<h2>2. The problem it solves</h2>
+<ul>
+<li><b>Fitness guidance is scattered and rarely local.</b> Most apps are English-only and ignore Gulf food and habits. VORA is Arabic-first (Kuwaiti dialect, right-to-left) with full English support.</li>
+<li><b>Beginners do not know where to start.</b> The muscle explorer, exercise library and AI coach explain what to do in simple steps.</li>
+<li><b>Finding and paying a trusted coach is hard.</b> VORA lists approved coaches and services, handles bookings, and takes payment through a Kuwaiti gateway (KNET).</li>
+<li><b>AI features can be expensive and unsafe if uncontrolled.</b> VORA uses a credit wallet with an exact price shown before every AI request, a hard spending limit, and safety rules in the coach.</li>
+</ul>
+
+<h2>3. Features implemented</h2>
+<table>
+<tr><th>Accounts &amp; security</th><td>Email sign-up with verification code; trusted-device verification with a 6-digit emailed code; Row Level Security on every database table; owner dashboard protected by two-factor authentication (TOTP); audit log.</td></tr>
+<tr><th>Workouts</th><td>Workout log (exercise, sets, reps, weight), progress photos in private storage, exercise library, interactive 3D muscle explorer.</td></tr>
+<tr><th>Nutrition</th><td>Food diary saved per user, food database, custom foods.</td></tr>
+<tr><th>Marketplace</th><td>Sports discovery, coach profiles, published services, booking wizard, coach and owner dashboards.</td></tr>
+<tr><th>Payments</th><td>UPayments (KNET) in sandbox mode: hosted checkout, signed webhook verification, server-side confirmation, and handling of declined, abandoned, duplicate and double-click payments. A booking is marked paid only by the server.</td></tr>
+<tr><th>AI Coach</th><td>Chat with a selectable coach (Rashid or Sarah), tone and language. Each request shows its exact credit cost and needs confirmation. Replies are currently simulated (mock mode).</td></tr>
+<tr><th>Credit wallet</th><td>2,500 trial credits per member; append-only ledger with reserve, settle and refund logic; wallet screen with balance and activity.</td></tr>
+<tr><th>Privacy</th><td>Explicit consents for health data and AI sharing; withdrawing health consent deletes the stored health data.</td></tr>
+<tr><th>Experience</th><td>Arabic and English with RTL/LTR switching, responsive phone-first design, public landing page.</td></tr>
+</table>
+
+<h2>4. Technology</h2>
+<p>React 19, Vite and TypeScript on the front end; Supabase (Postgres, Auth, Storage, Edge Functions, Realtime) on the back end; deployed on Vercel. Emails are sent through Brevo; payments through the UPayments sandbox.</p>
+
+<h2>5. Testing</h2>
+<p>444 automated database tests, 28 Edge Function unit tests, and browser end-to-end tests of the main user journey and of the sandbox payment flow (successful, declined and retried payments).</p>
+
+<h2>6. Known limitations</h2>
+<div class="note">AI coach replies are mock only (no paid AI provider is connected yet). Payments run in sandbox only, so no real money moves. Subscription plans are display-only. A mobile app (Expo / React Native) is in development on a separate branch and is not part of this submission.</div>
+</body></html>
