@@ -1,10 +1,10 @@
 -- Read-only. Runs straight after the migrations, before any other suite touches the scratch database: the shop catalogue and the
--- privileges of the exercise library exactly as 20261121 leaves them. Creates nothing and changes nothing.
+-- privileges of the exercise library exactly as the migrations leave them (plans: 20261121 + 20261124, no automatic coins). Creates nothing and changes nothing.
 do $$ declare n int; bad text := ''; t text; r text; p text;
 begin
   select count(*) into n from public.plans where enabled;
-  if n = 2 and (select count(*) from public.plans where enabled and provisional and includes_nutrition and (key, period_days, monthly_credits, price_kwd) in (('monthly', 30, 10000, 7.000), ('yearly', 365, 120000, 70.000))) = 2
-    then raise notice 'PASS on sale: monthly (30 days) and yearly (365 days) only, both with nutrition, both provisional'; else raise exception 'FAIL enabled plans: %', n; end if;
+  if n = 2 and (select count(*) from public.plans where enabled and provisional and includes_nutrition and monthly_credits is null and ai_daily_requests = 40 and ai_daily_media = 10 and (key, period_days, price_kwd) in (('monthly', 30, 7.000), ('yearly', 365, 70.000))) = 2
+    then raise notice 'PASS on sale: monthly (30 days) and yearly (365 days) only, both with nutrition, both provisional, NO coin allocation, included usage 40 requests / 10 media per day'; else raise exception 'FAIL enabled plans: %', n; end if;
   if (select count(*) from public.plans where key in ('essential','pro','elite','vip') and not enabled) = 4 then raise notice 'PASS the four old plans are kept, switched off'; else raise exception 'FAIL old plans'; end if;
   if (select count(*) from public.coin_packs where enabled) = 3 and (select count(*) from public.coin_packs where enabled and provisional and (key, coins, price_kwd) in (('starter', 500, 0.990), ('plus', 1500, 2.490), ('value', 3500, 4.990))) = 3
     then raise notice 'PASS on sale: starter 500 / 0.990, plus 1500 / 2.490, value 3500 / 4.990 (provisional)'; else raise exception 'FAIL enabled coin packs'; end if;

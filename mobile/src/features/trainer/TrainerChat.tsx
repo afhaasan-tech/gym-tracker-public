@@ -80,6 +80,7 @@ export default function TrainerChat({ initialMessage = null }: { initialMessage?
     : code === 'attachment_too_large' ? L('الملف كبير. الحد: صورة 4 ميغا، صوت 5، فيديو 12.', 'File too large. Limits: photo 4 MB, audio 5 MB, video 12 MB.')
     : code === 'attachment_type_not_supported' ? L('نوع الملف غير مدعوم.', 'This file type is not supported.')
     : code === 'trial_ended' || code === 'subscription_required' ? L('انتهت تجربتك المجانية. اشترك عشان تكمل مع مدربك.', 'Your free trial has ended. Subscribe to continue with your trainer.')
+    : code === 'daily_limit_reached' ? L('وصلت حد الاستخدام اليومي المشمول بباقتك. يتجدد باچر.', 'You reached the daily usage included in your plan. It resets tomorrow.')
     : code === 'rate_limited' || status === 429 ? L('طلبات كثيرة. انتظر شوي.', 'Too many requests. Please wait.')
     : code === 'provider_unavailable' ? L('الخدمة مشغولة الحين. ما انخصم منك شي.', 'The service is busy. Nothing was charged.')
     : L('تعذر الطلب. جرّب مرة ثانية.', 'Request failed. Please try again.'), [L])

@@ -1,8 +1,8 @@
 // deno test --allow-all tests/edge/ai-trainer.test.ts : the ONE AI trainer, orchestrated with in-memory fakes (no network, no database, no keys).
 import { type Access, CreditError, type Deps, handleTrainer, type Job, MEDIA_RULES, OPERATION, parseInput, SHORT_MAX_OUTPUT_TOKENS, SHORT_REPLY_MAX_CHARS } from '../../supabase/functions/ai-trainer/core.ts'
 import { inferMuscles, parseCandidates, shorten, wantsPlan } from '../../supabase/functions/ai-trainer/library.ts'
-import { anthropicProvider, canHandle, CAPABILITIES, costMicro, estimateMicro, geminiProvider, mockProvider, type Provider, type ProviderRequest } from '../../supabase/functions/ai-trainer/providers.ts'
-import { REDIRECT, systemPrompt, userEnvelope } from '../../supabase/functions/ai-trainer/prompts.ts'
+import { anthropicProvider, canHandle, CAPABILITIES, costMicro, estimateMicro, GEMINI_MEDIA_MODEL, geminiProvider, geminiThinking, mockProvider, PRICES, type Provider, type ProviderRequest } from '../../supabase/functions/ai-trainer/providers.ts'
+import { joinSystem, REDIRECT, systemPrompt, systemPromptParts, userEnvelope } from '../../supabase/functions/ai-trainer/prompts.ts'
 import { clean, detectInjection, medicalCheck, urgentCheck } from '../../supabase/functions/ai-trainer/sanitize.ts'
 import { exerciseRef, mealCard, trainerOutput, validateOutput, workoutCard, workoutPlan } from '../../supabase/functions/ai-trainer/schemas.ts'
 
@@ -11,7 +11,7 @@ const ok = (c: unknown, m: string) => { if (!c) throw new Error(m) }
 const PRICE: Record<string, number> = { trainer_message: 50, trainer_image: 300, trainer_audio: 100, trainer_video: 500 }
 const ROUTES: Record<string, Record<string, unknown>> = {
   trainer_message: { provider: 'anthropic', model: 'claude-haiku-5-5' }, trainer_image: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
-  trainer_audio: { provider: 'gemini', model: 'gemini-2.5-flash' }, trainer_video: { provider: 'gemini', model: 'gemini-2.5-flash' },
+  trainer_audio: { provider: 'gemini', model: 'gemini-3.5-flash-lite' }, trainer_video: { provider: 'gemini', model: 'gemini-3.5-flash-lite' },
 }
 const CONV = 'c0000000-0000-4000-8000-000000000001', CONV2 = 'c0000000-0000-4000-8000-000000000002'
 // The exercise library as library_candidates() returns it (compact records). The fake below filters like the database does.
@@ -33,14 +33,16 @@ const LIB = [
 ]
 const LIB_IDS = LIB.map((e) => e.id), byId = (id: string) => LIB.find((e) => e.id === id)!
 type Tier = 'subscriber' | 'coins' | 'trial' | 'none'
-type Opts = { tier?: Tier; nutrition?: boolean; balance?: number; mode?: 'mock' | 'live'; provider?: Provider; budget?: boolean; trusted?: boolean; route?: Record<string, unknown>; configured?: string[]; trialMax?: number; accessFails?: boolean; library?: unknown; libraryFails?: boolean }
+type Opts = { tier?: Tier; nutrition?: boolean; balance?: number; mode?: 'mock' | 'live'; provider?: Provider; budget?: boolean; trusted?: boolean; route?: Record<string, unknown>; configured?: string[]; trialMax?: number; accessFails?: boolean; library?: unknown; libraryFails?: boolean; billing?: 'included' | 'coins'; dailyRequests?: number; dailyMedia?: number; usageFails?: boolean }
 function world(over: Partial<Deps> = {}, opts: Opts = {}) {
   const s = {
     balance: opts.balance ?? 2500, jobs: new Map<string, Job & Record<string, unknown>>(), reservations: new Map<string, { credits: number; status: string }>(), calls: 0, called: [] as string[], reqs: [] as ProviderRequest[],
     rate: [] as string[], budgetAuth: 0, budgetSettle: [] as number[][], touched: 0, trial: { conv: null as string | null, used: 0, max: opts.trialMax ?? 10 }, consumeCalls: 0, refunds: 0, accessCalls: 0, libCalls: [] as Array<[string[], string, number]>,
+    usage: { requests: 0, media: 0, consumeCalls: [] as boolean[], refundCalls: [] as boolean[] }, reserveCalls: 0,
   }
   const prov: Provider = opts.provider ?? mockProvider
   const configured = opts.configured ?? ['mock', 'anthropic', 'gemini']
+  const capR = opts.dailyRequests ?? 40, capM = opts.dailyMedia ?? 10
   const wrap = (name: string): Provider => ({ name, call: (r) => { s.calls++; s.called.push(name); s.reqs.push(r); return prov.call(r) } })
   const tierNow = (): Tier => (opts.tier ?? 'subscriber') === 'trial' && s.trial.used >= s.trial.max ? 'none' : (opts.tier ?? 'subscriber')
   const d: Deps = {
@@ -52,6 +54,7 @@ function world(over: Partial<Deps> = {}, opts: Opts = {}) {
     createJob: (j) => { if (s.jobs.has(j.idem)) return Promise.resolve({ created: false }); s.jobs.set(j.idem, { status: 'running', operation_key: j.operation, tier: j.tier, conversationId: j.conversationId, mediaKinds: j.mediaKinds, request: j.request }); return Promise.resolve({ created: true }) },
     attachReservation: () => Promise.resolve(),
     reserve: (_u, o, i) => {
+      s.reserveCalls++
       const cost = PRICE[o]
       if (s.balance < cost) throw new CreditError('PC001')
       s.balance -= cost; const id = 'res-' + i; s.reservations.set(id, { credits: cost, status: 'reserved' }); return Promise.resolve({ reservationId: id, credits: cost })
@@ -67,7 +70,8 @@ function world(over: Partial<Deps> = {}, opts: Opts = {}) {
       s.accessCalls++
       if (opts.accessFails) return Promise.reject(new Error('db down'))
       const tier = tierNow()
-      return Promise.resolve({ tier, nutrition: tier === 'subscriber' && (opts.nutrition ?? true), plan_key: tier === 'subscriber' ? 'pro' : null, trial: { remaining: Math.max(0, s.trial.max - s.trial.used) } } as Access)
+      return Promise.resolve({ tier, nutrition: tier === 'subscriber' && (opts.nutrition ?? true), plan_key: tier === 'subscriber' ? (opts.billing === 'included' ? 'monthly' : 'pro') : null, trial: { remaining: Math.max(0, s.trial.max - s.trial.used) },
+        ...(opts.billing && tier === 'subscriber' ? { billing: opts.billing, daily_requests: opts.billing === 'included' ? capR : null, daily_media: opts.billing === 'included' ? capM : null } : {}) } as Access)
     },
     trialConsume: (_u, conv) => {
       s.consumeCalls++
@@ -76,6 +80,17 @@ function world(over: Partial<Deps> = {}, opts: Opts = {}) {
       s.trial.used++; return Promise.resolve({ allowed: true, remaining: s.trial.max - s.trial.used })
     },
     trialRefund: () => { s.refunds++; if (s.trial.used > 0) s.trial.used--; return Promise.resolve() },
+    // the database counter (trainer_usage_consume / _refund), reproduced in memory
+    usageConsume: (_u, media) => {
+      s.usage.consumeCalls.push(media)
+      if (opts.usageFails) return Promise.reject(new Error('db down'))
+      if (opts.billing !== 'included' || tierNow() !== 'subscriber') return Promise.resolve({ allowed: false, reason: 'not_included', remaining_requests: 0, remaining_media: 0 })
+      if (s.usage.requests >= capR) return Promise.resolve({ allowed: false, reason: 'daily_limit_reached', remaining_requests: 0, remaining_media: 0 })
+      if (media && s.usage.media >= capM) return Promise.resolve({ allowed: false, reason: 'daily_media_limit_reached', remaining_requests: capR - s.usage.requests, remaining_media: 0 })
+      s.usage.requests++; if (media) s.usage.media++
+      return Promise.resolve({ allowed: true, remaining_requests: capR - s.usage.requests, remaining_media: Math.max(0, Math.min(capM - s.usage.media, capR - s.usage.requests)) })
+    },
+    usageRefund: (_u, media) => { s.usage.refundCalls.push(media); if (s.usage.requests > 0) { s.usage.requests--; if (media && s.usage.media > 0) s.usage.media-- } return Promise.resolve() },
     libraryCandidates: (muscles, environment, limit) => {
       s.libCalls.push([muscles, environment, limit])
       if (opts.libraryFails) return Promise.reject(new Error('db down'))
@@ -143,7 +158,7 @@ Deno.test('trial: no confirmation and no credits; each answer consumes exactly o
   const { s, d } = world({}, { tier: 'trial', balance: 0 })
   const r = await handleTrainer(d, 'u1', req({ confirm_credits: undefined })); eq(r.status, 200, 'no confirmation needed')
   const b = r.body as B
-  eq([b.credits_charged, b.mock, b.replay, b.conversation_id], [0, true, false, CONV], 'free'); eq(b.access, { tier: 'trial', nutrition: false, trial_remaining: 9 }, 'access block')
+  eq([b.credits_charged, b.mock, b.replay, b.conversation_id], [0, true, false, CONV], 'free'); eq(b.access, { tier: 'trial', nutrition: false, trial_remaining: 9, billing: null, remaining_today: null }, 'access block')
   eq(Object.keys(b).sort(), RESPONSE_KEYS, 'response shape'); eq([b.workout_card, b.workout_plan, b.meal_card], [null, null, null], 'the trial never gets a card'); ok(b.chat_reply.startsWith('[MOCK]'), 'mock label')
   eq([s.trial.used, s.consumeCalls, s.reservations.size, s.balance, s.refunds], [1, 1, 0, 0, 0], 'one message, wallet untouched')
   const job = [...s.jobs.values()][0]; eq([job.status, job.tier, job.conversationId, job.operation_key], ['done', 'trial', CONV, 'trainer_message'], 'job recorded as a trial job')
@@ -188,7 +203,7 @@ Deno.test('subscriber: exact-cost confirmation per operation (message 50, image 
     r = await handleTrainer(d, 'u1', req({ attachments, confirm_credits: credits, idempotency_key: k })); eq(r.status, 200, operation)
     const b = r.body as B
     eq([s.balance, b.credits_charged, b.mock, b.replay], [2500 - credits, credits, true, false], 'charged once'); eq(s.reservations.get('res-' + k)!.status, 'settled', 'settled')
-    eq(b.access, { tier: 'subscriber', nutrition: true, trial_remaining: null }, 'access'); eq(Object.keys(b).sort(), RESPONSE_KEYS, 'shape'); eq(s.consumeCalls, 0, 'the trial is never touched for subscribers')
+    eq(b.access, { tier: 'subscriber', nutrition: true, trial_remaining: null, billing: 'coins', remaining_today: null }, 'access'); eq(Object.keys(b).sort(), RESPONSE_KEYS, 'shape'); eq(s.consumeCalls, 0, 'the trial is never touched for subscribers')
     eq(s.jobs.get(k)!.mediaKinds, attachments ? [attachments[0].kind] : [], 'media kinds recorded (never the media)')
   }
   eq(OPERATION, { text: 'trainer_message', image: 'trainer_image', audio: 'trainer_audio', video: 'trainer_video' }, 'operation map')
@@ -228,7 +243,7 @@ Deno.test('meal_card: allowed when the plan includes nutrition; stripped + locke
   eq([b.meal_card, b.locked, b.access.nutrition, b.credits_charged], [null, ['nutrition'], false, 50], 'essential: stripped'); ok(b.chat_reply.startsWith('[MOCK]') && /nutrition/i.test(b.chat_reply) && !/machboos/i.test(b.chat_reply), 'reply replaced by the upgrade note (no recipe text leaks)')
   ok(!JSON.stringify(b).includes('machboos'), 'no trace of the recipe in the response'); ok(!String(w.s.jobs.values().next().value!.response_text).includes('machboos'), 'nor in the stored job')
   w = world({}, { tier: 'trial' }); b = (await handleTrainer(w.d, 'u1', req({ message: 'أبي أكل صحي' }))).body as B
-  eq([b.meal_card, b.locked, b.access], [null, ['nutrition'], { tier: 'trial', nutrition: false, trial_remaining: 9 }], 'trial: no nutrition')
+  eq([b.meal_card, b.locked, b.access], [null, ['nutrition'], { tier: 'trial', nutrition: false, trial_remaining: 9, billing: null, remaining_today: null }], 'trial: no nutrition')
   // a live model that ignores the prompt is stripped the same way
   const meal = JSON.parse((await mockProvider.call({ system: '', user: '', model: 'm', maxTokens: 1, signal: new AbortController().signal, meta: { message: 'recipe', language: 'en', environment: 'gym', attachmentKind: null } })).text).meal_card
   w = world({}, { mode: 'live', budget: true, nutrition: false, provider: fixed(VALID({ chat_reply: 'Eat 300 kcal of rice', meal_card: meal })) }); b = (await handleTrainer(w.d, 'u1', req())).body as B
@@ -376,7 +391,7 @@ Deno.test('live: a provider without the needed capability is never called with m
   // audio routed to anthropic (misconfigured route), gemini configured + budget ok => gemini gets the media, anthropic gets nothing
   let w = world({}, { mode: 'live', budget: true, route: { provider: 'anthropic', model: 'claude-haiku-5-5' }, provider: fixed(VALID()) })
   let b = (await handleTrainer(w.d, 'u1', req({ attachments: aud(), confirm_credits: 100 }))).body as B
-  eq([w.s.called, b.media.analyzed, b.credits_charged], [['gemini'], ['audio'], 100], 'handed to gemini instead'); eq([w.s.reqs[0].model, w.s.reqs[0].media?.kind], ['gemini-2.5-flash', 'audio'], 'gemini media model')
+  eq([w.s.called, b.media.analyzed, b.credits_charged], [['gemini'], ['audio'], 100], 'handed to gemini instead'); eq([w.s.reqs[0].model, w.s.reqs[0].media?.kind, GEMINI_MEDIA_MODEL], ['gemini-3.5-flash-lite', 'audio', 'gemini-3.5-flash-lite'], 'gemini media model (2.5-flash is deprecated)')
   // gemini NOT configured: anthropic answers the TEXT only, without the media; honest note; not charged
   w = world({}, { mode: 'live', budget: true, configured: ['mock', 'anthropic'], route: { provider: 'anthropic', model: 'claude-haiku-5-5' }, provider: fixed(VALID({ chat_reply: 'نصيحة عامة' })) })
   b = (await handleTrainer(w.d, 'u1', req({ attachments: vid(), confirm_credits: 500 }))).body as B
@@ -427,45 +442,74 @@ Deno.test('live success: budget estimate is authorised then settled with the rea
   eq([b.mock, b.credits_charged, w.s.called], [false, 50, ['anthropic']], 'live answer'); eq(w.s.budgetSettle.length, 1, 'settled once'); eq(w.s.budgetSettle[0][1], costMicro('claude-haiku-5-5', 1000, 200), 'actual cost'); ok(w.s.budgetSettle[0][0] >= w.s.budgetSettle[0][1], 'estimate is an upper bound')
   const job = [...w.s.jobs.values()][0]; eq([job.provider, job.model, job.cost_usd_micro], ['anthropic', 'claude-haiku-5-5', costMicro('claude-haiku-5-5', 1000, 200)], 'job cost recorded')
   let i = 0
-  w = world({}, { mode: 'live', budget: true, route: { provider: 'anthropic', model: 'claude-haiku-5-5', fallback_provider: 'gemini', fallback_model: 'gemini-2.5-flash' }, provider: { name: 'x', call: () => (++i === 1 ? Promise.reject(new Error('down')) : Promise.resolve({ text: VALID(), inputTokens: 10, outputTokens: 10 })) } })
+  w = world({}, { mode: 'live', budget: true, route: { provider: 'anthropic', model: 'claude-haiku-5-5', fallback_provider: 'gemini', fallback_model: 'gemini-3.5-flash-lite' }, provider: { name: 'x', call: () => (++i === 1 ? Promise.reject(new Error('down')) : Promise.resolve({ text: VALID(), inputTokens: 10, outputTokens: 10 })) } })
   eq([(await handleTrainer(w.d, 'u1', req())).status, w.s.called], [200, ['anthropic', 'gemini']], 'fallback provider answered'); eq(w.s.budgetSettle[0][1], 0, 'failed attempt frees its estimate')
 })
 
 // ================================================================= providers, pricing, schemas
-Deno.test('pricing: known models incl. gemini-2.5-flash; unknown model throws; media raises the estimate', () => {
-  eq(costMicro('gemini-2.5-flash', 1_000_000, 1_000_000), 2_800_000, 'gemini-2.5-flash text price'); eq(costMicro('gemini-2.5-flash', 1_000_000, 0, true), 1_000_000, 'audio input rate')
-  eq(costMicro('claude-haiku-5-5', 1000, 1000), 3000, 'haiku'); eq(costMicro('mock-model', 5, 5), 0, 'mock is free')
+Deno.test('pricing: verified price table (Claude Haiku 5.5 / Sonnet 5.5, Gemini 3.5 Flash-Lite); cache tokens; unknown model throws; media raises the estimate', () => {
+  eq([PRICES['claude-haiku-5-5'].in, PRICES['claude-haiku-5-5'].out, PRICES['claude-sonnet-5-5'].in, PRICES['claude-sonnet-5-5'].out], [0.1, 0.5, 2, 10], 'Anthropic input / output USD per 1M tokens')
+  eq([PRICES['gemini-3.5-flash-lite'].in, PRICES['gemini-3.5-flash-lite'].out, PRICES['gemini-3.5-flash-lite'].audioIn], [0.3, 2.5, undefined], 'Gemini 3.5 Flash-Lite: one input price for every modality')
+  eq(costMicro('claude-haiku-5-5', 1_000_000, 1_000_000), 3_000_000, 'haiku above 100K prompt tokens: the long-prompt rate card ($0.50 / $2.50)')
+  eq(costMicro('claude-haiku-5-5', 10_000, 1_000), 1500, 'haiku: 10K in + 1K out = $0.0015'); eq(costMicro('claude-sonnet-5-5', 1000, 1000), 12000, 'sonnet'); eq(costMicro('mock-model', 5, 5), 0, 'mock is free')
+  eq(costMicro('claude-haiku-5-5', 0, 0, false, { read: 10_000 }), 100, 'haiku cache read = 0.1x input'); eq(costMicro('claude-haiku-5-5', 0, 0, false, { write: 10_000 }), 1250, 'haiku 5-minute cache write = 1.25x input')
+  eq(costMicro('claude-sonnet-5-5', 0, 0, false, { read: 10_000, write: 10_000 }), 1000 + 25000, 'sonnet cache read $0.10, write $2.50 per 1M')
+  eq(costMicro('gemini-3.5-flash-lite', 1_000_000, 1_000_000), 2_800_000, 'gemini-3.5-flash-lite text price'); eq(costMicro('gemini-3.5-flash-lite', 1_000_000, 0, true), 300_000, 'audio input at the same rate')
+  eq(costMicro('gemini-2.5-flash', 1_000_000, 0, true), 1_000_000, 'the deprecated model keeps its own audio rate while a route still names it')
   let threw = false; try { estimateMicro('gpt-99', 's', 'u', 10) } catch { threw = true } ok(threw, 'unknown model => not callable')
-  const base = estimateMicro('gemini-2.5-flash', 's', 'u', 3000)
-  ok(estimateMicro('gemini-2.5-flash', 's', 'u', 3000, { kind: 'video', mimeType: 'video/mp4', dataBase64: '', bytes: 12 << 20 }) > base + 30000, 'a 12 MB video adds a real estimate')
-  ok(estimateMicro('gemini-2.5-flash', 's', 'u', 3000, { kind: 'audio', mimeType: 'audio/mpeg', dataBase64: '', bytes: 1 << 20 }) > base, 'audio adds to the estimate')
+  const sys = 'x'.repeat(9600), est = estimateMicro('claude-haiku-5-5', sys, 'u', 1024)
+  ok(est >= costMicro('claude-haiku-5-5', 1, 1024, false, { write: 3000 }) && est > costMicro('claude-haiku-5-5', 3001, 1024), 'the estimate assumes the system prompt is written to the cache (upper bound)')
+  const base = estimateMicro('gemini-3.5-flash-lite', 's', 'u', 3000)
+  ok(estimateMicro('gemini-3.5-flash-lite', 's', 'u', 3000, { kind: 'video', mimeType: 'video/mp4', dataBase64: '', bytes: 12 << 20 }) > base + 30000, 'a 12 MB video adds a real estimate')
+  ok(estimateMicro('gemini-3.5-flash-lite', 's', 'u', 3000, { kind: 'audio', mimeType: 'audio/mpeg', dataBase64: '', bytes: 1 << 20 }) > base, 'audio adds to the estimate')
 })
 
 Deno.test('live adapters: refuse to run outside AI_MODE=live; request shapes (image block / inlineData + JSON schema), keys only in headers', async () => {
-  const call = (p: Provider, media?: ProviderRequest['media']) => p.call({ system: 'SYS', user: 'USER', model: p.name === 'gemini' ? 'gemini-2.5-flash' : 'claude-sonnet-5-5', maxTokens: 100, signal: new AbortController().signal, media, meta: { message: '', language: 'ar', environment: 'gym', attachmentKind: media?.kind ?? null } })
+  const call = (p: Provider, media?: ProviderRequest['media'], o: Partial<ProviderRequest> = {}) => p.call({ system: 'SYS', user: 'USER', model: p.name === 'gemini' ? 'gemini-3.5-flash-lite' : 'claude-sonnet-5-5', maxTokens: 100, signal: new AbortController().signal, media, meta: { message: '', language: 'ar', environment: 'gym', attachmentKind: media?.kind ?? null }, ...o })
   Deno.env.delete('AI_MODE')
   for (const p of [anthropicProvider('k'), geminiProvider('k')]) { let threw = false; try { await call(p) } catch { threw = true } ok(threw, p.name + ' refuses outside live mode') }
   const realFetch = globalThis.fetch; const seen: Array<{ url: string; headers: Record<string, string>; body: any }> = []
   Deno.env.set('AI_MODE', 'live')
+  const respond = (body: unknown, status = 200) => { globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify(body), { status }))) as typeof fetch }
+  const fails = async (f: () => Promise<unknown>) => { try { await f(); return '' } catch (e) { return (e as Error).message } }
   try {
     globalThis.fetch = ((url: string, init: RequestInit) => {
       seen.push({ url: String(url), headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) })
-      const body = String(url).includes('anthropic') ? { stop_reason: 'end_turn', content: [{ type: 'text', text: VALID() }], usage: { input_tokens: 11, output_tokens: 7 } } : { candidates: [{ content: { parts: [{ text: VALID() }] } }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 6, thoughtsTokenCount: 2 } }
+      // Claude: the answer may come after an (empty) thinking block; cache usage is reported next to input_tokens
+      const body = String(url).includes('anthropic') ? { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'sig' }, { type: 'text', text: VALID() }], usage: { input_tokens: 11, output_tokens: 7, cache_read_input_tokens: 300, cache_creation_input_tokens: 40 } }
+        : { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'hidden reasoning', thought: true }, { text: VALID() }] } }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 6, thoughtsTokenCount: 2 } }
       return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
     }) as typeof fetch
     const a = await call(anthropicProvider('SECRET-A'), { kind: 'image', mimeType: 'image/png', dataBase64: PNG, bytes: 18 })
-    eq([a.inputTokens, a.outputTokens, validateOutput(a.text).ok], [11, 7, true], 'anthropic result')
-    eq(seen[0].url, 'https://api.anthropic.com/v1/messages', 'anthropic url'); eq(seen[0].headers['x-api-key'], 'SECRET-A', 'key in header'); ok(!JSON.stringify(seen[0].body).includes('SECRET-A'), 'key not in body')
-    eq(seen[0].body.messages[0].content[0], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } }, 'base64 image content block'); eq(seen[0].body.messages[0].content[1].type, 'text', 'then the text'); eq([seen[0].body.system, seen[0].body.model, 'temperature' in seen[0].body], ['SYS', 'claude-sonnet-5-5', false], 'system + model, no sampling params')
-    const g = await call(geminiProvider('SECRET-G'), { kind: 'audio', mimeType: 'audio/m4a', dataBase64: BLOB, bytes: 9 })
-    eq([g.inputTokens, g.outputTokens], [5, 8], 'gemini usage incl. thinking tokens')
-    eq(seen[1].url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', 'gemini REST url without the key'); eq(seen[1].headers['x-goog-api-key'], 'SECRET-G', 'key in header')
-    eq(seen[1].body.contents[0].parts[0], { inlineData: { mimeType: 'audio/mp4', data: BLOB } }, 'inlineData part'); eq(seen[1].body.generationConfig.responseMimeType, 'application/json', 'json mode'); eq(seen[1].body.generationConfig.responseSchema.type, 'OBJECT', 'response schema sent')
-    ok(seen[1].body.generationConfig.responseSchema.properties.workout_plan && seen[1].body.systemInstruction.parts[0].text === 'SYS', 'schema covers the plan; system instruction')
-    globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ stop_reason: 'refusal', content: [] }), { status: 200 }))) as typeof fetch
-    let threw = false; try { await call(anthropicProvider('k')) } catch { threw = true } ok(threw, 'an anthropic refusal is a provider failure (nothing charged)')
-    globalThis.fetch = (() => Promise.resolve(new Response('{}', { status: 500 }))) as typeof fetch
-    threw = false; try { await call(geminiProvider('k')) } catch { threw = true } ok(threw, 'http errors throw')
+    eq([a.inputTokens, a.outputTokens, a.cacheReadTokens, a.cacheWriteTokens, validateOutput(a.text).ok], [11, 7, 300, 40, true], 'anthropic result: text block read by type, cache usage reported')
+    eq(seen[0].url, 'https://api.anthropic.com/v1/messages', 'anthropic url'); eq([seen[0].headers['x-api-key'], seen[0].headers['anthropic-version'], seen[0].headers['content-type']], ['SECRET-A', '2023-06-01', 'application/json'], 'key + version in headers'); ok(!JSON.stringify(seen[0].body).includes('SECRET-A'), 'key not in body')
+    eq(seen[0].body.messages[0].content[0], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } }, 'base64 image content block'); eq(seen[0].body.messages[0].content[1].type, 'text', 'then the text'); eq([seen[0].body.system, seen[0].body.model, seen[0].body.max_tokens], ['SYS', 'claude-sonnet-5-5', 100], 'system + model + max_tokens')
+    eq(Object.keys(seen[0].body).sort(), ['max_tokens', 'messages', 'model', 'output_config', 'system'], 'only parameters the current models accept: no temperature / top_p / top_k, no thinking budget, no prefill, no forced tool')
+    eq([seen[0].body.output_config, seen[0].body.messages.length, seen[0].body.messages[0].role], [{ effort: 'low' }, 1, 'user'], 'effort inside output_config; the conversation ends with the user turn')
+    // prompt caching: the stable prefix carries the cache marker, the per-request tail does not
+    await call(anthropicProvider('k'), undefined, { system: 'STABLE\n\nTAIL', systemParts: { stable: 'STABLE', variable: 'TAIL' } })
+    eq(seen[1].body.system, [{ type: 'text', text: 'STABLE', cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'TAIL' }], 'system blocks: cached prefix + uncached tail')
+    await call(anthropicProvider('k'), undefined, { system: 'STABLE', systemParts: { stable: 'STABLE', variable: '' } })
+    eq(seen[2].body.system, [{ type: 'text', text: 'STABLE', cache_control: { type: 'ephemeral' } }], 'no empty tail block')
+    const g = await call(geminiProvider('SECRET-G'), { kind: 'audio', mimeType: 'audio/x-m4a', dataBase64: BLOB, bytes: 9 })
+    eq([g.inputTokens, g.outputTokens, validateOutput(g.text).ok], [5, 8, true], 'gemini usage incl. thinking tokens; thought parts are not part of the answer')
+    eq(seen[3].url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent', 'gemini REST url without the key'); eq(seen[3].headers['x-goog-api-key'], 'SECRET-G', 'key in header')
+    const gc = seen[3].body.generationConfig
+    eq(seen[3].body.contents[0].parts[0], { inlineData: { mimeType: 'audio/m4a', data: BLOB } }, 'inlineData part with a documented MIME type'); eq([gc.responseMimeType, gc.responseJsonSchema.type, gc.maxOutputTokens], ['application/json', 'object', 100], 'JSON mode + JSON Schema + output cap')
+    eq([gc.thinkingConfig, 'temperature' in gc, 'responseSchema' in gc], [{ thinkingLevel: 'minimal' }, false, false], 'thinking at its minimum (it is billed and counts toward the cap); no sampling parameter; no legacy schema field')
+    ok(gc.responseJsonSchema.properties.workout_plan && seen[3].body.systemInstruction.parts[0].text === 'SYS', 'schema covers the plan; system instruction')
+    eq([gc.responseJsonSchema.properties.workout_card.type, gc.responseJsonSchema.properties.safety.properties.injured_area.type], [['object', 'null'], ['string', 'null']], 'nullable = a type list with "null" (JSON Schema, not the OpenAPI subset)')
+    ok(!/"(OBJECT|STRING|ARRAY|INTEGER|NUMBER|BOOLEAN)"|nullable/.test(JSON.stringify(gc.responseJsonSchema)), 'no OpenAPI-style upper-case types left')
+    await call(geminiProvider('k'), { kind: 'video', mimeType: 'video/quicktime', dataBase64: BLOB, bytes: 9 }); eq(seen[4].body.contents[0].parts[0].inlineData.mimeType, 'video/mov', '.mov is sent under the documented name')
+    eq([geminiThinking('gemini-2.5-flash'), geminiThinking('gemini-2.5-flash-lite'), geminiThinking('gemini-3.5-flash-lite'), geminiThinking('gemini-3.8-flash')], [{ thinkingBudget: 0 }, { thinkingBudget: 0 }, { thinkingLevel: 'minimal' }, { thinkingLevel: 'low' }], 'thinking control per model generation')
+    // an HTTP 200 that is not an answer is a provider failure (nothing is charged, the unit / credits go back)
+    respond({ stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'general_harms' }, content: [] }); eq(await fails(() => call(anthropicProvider('k'))), 'provider_refusal', 'an anthropic refusal is a provider failure')
+    respond({ stop_reason: 'max_tokens', content: [{ type: 'thinking', thinking: '', signature: 's' }], usage: { input_tokens: 5, output_tokens: 100 } }); eq(await fails(() => call(anthropicProvider('k'))), 'provider_truncated', 'thinking used up max_tokens => failure, not an empty answer')
+    respond({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] }); eq(await fails(() => call(geminiProvider('k'))), 'provider_truncated', 'gemini MAX_TOKENS is a failure')
+    respond({ candidates: [{ finishReason: 'SAFETY' }] }); eq(await fails(() => call(geminiProvider('k'))), 'provider_refusal', 'gemini safety stop is a failure')
+    respond({ promptFeedback: { blockReason: 'SAFETY' } }); eq(await fails(() => call(geminiProvider('k'))), 'provider_refusal', 'a blocked prompt (no candidates) is a failure')
+    respond({}, 500); eq(await fails(() => call(geminiProvider('k'))), 'provider_http_500', 'http errors throw'); eq(await fails(() => call(anthropicProvider('k'))), 'provider_http_500', 'for both providers')
+    eq(await fails(() => call(anthropicProvider('k'), { kind: 'audio', mimeType: 'audio/mpeg', dataBase64: BLOB, bytes: 9 })), 'unsupported_media', 'the anthropic adapter itself refuses audio (no fake transcription)')
   } finally { globalThis.fetch = realFetch; Deno.env.delete('AI_MODE') }
 })
 
@@ -675,4 +719,148 @@ Deno.test('trial: bound to the ACCOUNT, not to a device, session or conversation
   eq((await handleTrainer(d, 'u1', req({ user_id: 'u2' } as never))).status, 400, 'a body cannot name another account (unknown key)')
   const last = (await handleTrainer(d, 'u1', req())).body as B; eq([last.access.trial_remaining, last.upgrade], [0, { reason: 'library' }], 'the limit is disclosed in access.trial_remaining')
   eq((await handleTrainer(d, 'u1', req())).status, 402, 'the configured message limit ends it'); eq((await handleTrainer(d, 'u1', req({ conversation_id: CONV2 }))).status, 402, 'and no other conversation id revives it')
+})
+
+// ================================================================= included usage (owner decision: AI use is included per plan, no coin grant)
+const inc = (o: Opts = {}) => world({}, { billing: 'included', ...o })
+const plain = (o: Record<string, unknown> = {}) => { const r = req(o) as Record<string, unknown>; delete r.confirm_credits; return r }
+
+Deno.test('included subscriber: no 409 confirmation, no reservation, credits_charged 0; one request of the day is used; access.billing + remaining_today', async () => {
+  const w = inc({ balance: 0 })                                              // no coins at all: an included subscriber does not need any
+  const out = await handleTrainer(w.d, 'u1', plain()); const b = out.body as B
+  eq([out.status, b.credits_charged, w.s.reserveCalls, w.s.reservations.size, w.s.balance], [200, 0, 0, 0, 0], 'answered without a confirmation, a reservation or a charge')
+  eq(b.access, { tier: 'subscriber', nutrition: true, trial_remaining: null, billing: 'included', remaining_today: { requests: 39, media: 10 } }, 'access block')
+  eq([w.s.usage.requests, w.s.usage.media, w.s.usage.consumeCalls, w.s.consumeCalls], [1, 0, [false], 0], 'exactly one request unit, no media unit, the trial is not touched')
+  ok(b.workout_card && b.workout_card.source === 'library' && b.upgrade === null, 'the full subscriber answer (library card)')
+  eq(Object.keys(b).sort(), RESPONSE_KEYS, 'same response keys as every other tier')
+  // a client that still sends confirm_credits (any value) is not asked to confirm and is not charged
+  const again = await handleTrainer(w.d, 'u1', req({ confirm_credits: 999 })); eq([again.status, (again.body as B).credits_charged, w.s.usage.requests], [200, 0, 2], 'confirm_credits is ignored')
+  eq([...w.s.jobs.values()].map((j) => j.tier), ['subscriber', 'subscriber'], 'jobs recorded as subscriber jobs')
+})
+
+Deno.test('included subscriber: an attachment uses one request AND one media unit', async () => {
+  const w = inc({ dailyMedia: 2 })
+  let b = (await handleTrainer(w.d, 'u1', plain({ attachments: img() }))).body as B
+  eq([b.credits_charged, w.s.usage.requests, w.s.usage.media, w.s.usage.consumeCalls, b.access.remaining_today], [0, 1, 1, [true], { requests: 39, media: 1 }], 'image: 1 request + 1 media unit')
+  b = (await handleTrainer(w.d, 'u1', plain({ attachments: aud() }))).body as B; eq([w.s.usage.media, b.access.remaining_today], [2, { requests: 38, media: 0 }], 'audio counts in the same media allowance')
+  const out = await handleTrainer(w.d, 'u1', plain({ attachments: vid() }))
+  eq([out.status, out.body], [429, { error: 'daily_limit_reached', resets: 'tomorrow', limit: 'media', remaining_today: { requests: 38, media: 0 } }], 'media allowance used up: 429, text requests are still available')
+  eq([w.s.calls, w.s.usage.requests, w.s.jobs.size], [2, 2, 2], 'the refused request called no provider, used nothing and left no job')
+  eq((await handleTrainer(w.d, 'u1', plain())).status, 200, 'a text message still works')
+})
+
+Deno.test('included subscriber: daily cap => 429 daily_limit_reached (no provider, no job, nothing reserved); urgent wording still gets the safety reply', async () => {
+  const w = inc({ dailyRequests: 2 })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, (await handleTrainer(w.d, 'u1', plain())).status], [200, 200], 'two requests allowed')
+  const out = await handleTrainer(w.d, 'u1', plain())
+  eq([out.status, out.body], [429, { error: 'daily_limit_reached', resets: 'tomorrow', limit: 'requests', remaining_today: { requests: 0, media: 0 } }], 'third request refused')
+  eq([w.s.calls, w.s.jobs.size, w.s.reserveCalls, w.s.usage.requests], [2, 2, 0, 2], 'no provider call, no job row, no coins, counter unchanged')
+  // a retry of an ANSWERED request (same idempotency key) is a replay: it is served from the job and consumes nothing, even at the cap
+  const k = [...w.s.jobs.keys()][0]; const rp = await handleTrainer(w.d, 'u1', plain({ idempotency_key: k }))
+  eq([rp.status, (rp.body as B).replay, w.s.usage.requests, w.s.usage.consumeCalls.length, w.s.calls], [200, true, 2, 3, 2], 'replay: no unit, no provider')
+  // emergencies are never met with a limit: the fixed safety text is given (no provider), nothing is consumed
+  const u = await handleTrainer(w.d, 'u1', plain({ message: 'عندي ألم بالصدر وما أقدر أتنفس' })); const ub = u.body as B
+  eq([u.status, ub.safety.urgent, ub.credits_charged, ub.access.billing, w.s.calls, w.s.usage.requests], [200, true, 0, 'included', 2, 2], 'urgent reply at the cap')
+  ok(/112/.test(ub.chat_reply), 'tells the member to call emergency services')
+  // the deterministic medical refusal is also a fixed reply that never touches the counter
+  const m = await handleTrainer(w.d, 'u1', plain({ message: 'what dose of testosterone should I inject per week' })); eq([m.status, (m.body as B).safety.refused, w.s.usage.consumeCalls.length], [200, true, 4], 'hard medical refusal: fixed reply, counter not asked')
+})
+
+Deno.test('included subscriber: the unit is given back on provider failure, invalid output, library failure and library miss', async () => {
+  // provider throws
+  let w = inc({ mode: 'live', budget: true, provider: { name: 'x', call: () => Promise.reject(new Error('down')) } })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.usage.requests, w.s.usage.refundCalls, w.s.reserveCalls], [503, 0, [false], 0], 'provider failure: refunded')
+  eq([...w.s.jobs.values()][0].status, 'failed', 'job failed')
+  // invalid output
+  w = inc({ mode: 'live', budget: true, provider: fixed('not json at all') })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.usage.requests, w.s.usage.refundCalls], [503, 0, [false]], 'invalid output: refunded'); eq(w.s.budgetSettle.length, 1, 'the provider cost is still booked against the budget')
+  // library unavailable
+  w = inc({ libraryFails: true })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.usage.requests, w.s.usage.refundCalls, w.s.calls], [503, 0, [false], 0], 'library failure: refunded before any provider call')
+  // the model points outside the library: an honest "nothing found" reply, and the unit goes back (as a reservation would be released)
+  w = inc({ mode: 'live', budget: true, provider: fixed(VALID({ workout_card: REF('made-up-exercise') })) })
+  const out = await handleTrainer(w.d, 'u1', plain()); const b = out.body as B
+  eq([out.status, b.workout_card, b.credits_charged, w.s.usage.requests, w.s.usage.refundCalls, b.access.remaining_today], [200, null, 0, 0, [false], { requests: 40, media: 10 }], 'library miss: answered honestly, unit refunded')
+  // media that could not be analysed by any provider (only Anthropic configured, audio + text): the text is answered, the units go back
+  w = inc({ mode: 'live', budget: true, configured: ['mock', 'anthropic'], provider: fixed(VALID()) })
+  const mb = (await handleTrainer(w.d, 'u1', plain({ attachments: aud(), message: 'شنو رايك' }))).body as B
+  eq([mb.media.analyzed, mb.credits_charged, w.s.usage.requests, w.s.usage.media, w.s.usage.refundCalls], [[], 0, 0, 0, [true]], 'media not analysed: request + media unit refunded')
+  // a duplicate that loses the createJob race gives its unit back
+  w = inc(); const k = key(); let first = true
+  w.d.createJob = (j) => { if (first) { first = false; w.s.jobs.set(j.idem, { status: 'running', operation_key: j.operation }) } return Promise.resolve({ created: false }) }
+  eq([(await handleTrainer(w.d, 'u1', plain({ idempotency_key: k }))).status, w.s.usage.requests, w.s.usage.refundCalls], [409, 0, [false]], 'in-progress duplicate: refunded')
+})
+
+Deno.test('included usage NEVER bypasses the global budget gate; the counter failing closes the request', async () => {
+  // live mode, budget gate refuses: no provider call, 503, unit refunded
+  let w = inc({ mode: 'live', budget: false, provider: fixed(VALID()) })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.calls, w.s.budgetAuth, w.s.usage.requests, w.s.usage.refundCalls], [503, 0, 1, 0, [false]], 'budget gate off => no live call for an included subscriber either')
+  // live mode, budget ok: authorised first, then settled with the real cost
+  w = inc({ mode: 'live', budget: true, provider: fixed(VALID(), [1000, 200]) })
+  const b = (await handleTrainer(w.d, 'u1', plain())).body as B
+  eq([b.mock, b.credits_charged, w.s.budgetAuth, w.s.budgetSettle.length, w.s.budgetSettle[0][1], w.s.usage.requests], [false, 0, 1, 1, costMicro('claude-haiku-5-5', 1000, 200), 1], 'authorise -> call -> settle; one unit used; no coins')
+  ok(w.s.budgetSettle[0][0] >= w.s.budgetSettle[0][1], 'the estimate is an upper bound')
+  // cache tokens reported by the provider are priced (and logged) too
+  w = inc({ mode: 'live', budget: true, provider: { name: 'x', call: () => Promise.resolve({ text: VALID(), inputTokens: 100, outputTokens: 50, cacheReadTokens: 2000, cacheWriteTokens: 500 }) } })
+  await handleTrainer(w.d, 'u1', plain()); const job = [...w.s.jobs.values()][0]
+  eq([w.s.budgetSettle[0][1], job.cost_usd_micro, job.input_tokens], [costMicro('claude-haiku-5-5', 100, 50, false, { read: 2000, write: 500 }), costMicro('claude-haiku-5-5', 100, 50, false, { read: 2000, write: 500 }), 2600], 'cache read / write tokens are part of the real cost')
+  // the per-request rate limits still apply
+  w = inc(); w.d.rateLimit = () => Promise.resolve({ allowed: false, retryAfter: 30 })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.usage.consumeCalls.length], [429, 0], 'rate limited before the counter is touched')
+  // the database counter is unavailable: fail closed, no provider call
+  w = inc({ usageFails: true }); eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.calls, w.s.jobs.size], [503, 0, 0], 'counter unavailable => 503')
+  // the plan changed between the access check and the counter
+  w = inc(); w.d.usageConsume = () => Promise.resolve({ allowed: false, reason: 'not_included' })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.calls], [409, 0], 'not included any more => 409 access_changed, nothing called')
+})
+
+Deno.test('subscribers with a coin allocation (billing "coins") and the coins tier keep the confirm / reserve / settle flow unchanged', async () => {
+  let w = world({}, { billing: 'coins' })
+  let out = await handleTrainer(w.d, 'u1', plain()); eq([out.status, out.body], [409, { error: 'confirmation_required', credits: 50, operation: 'trainer_message' }], 'coin-allocation subscriber must confirm the cost')
+  out = await handleTrainer(w.d, 'u1', req()); const b = out.body as B
+  eq([out.status, b.credits_charged, w.s.balance, w.s.reserveCalls, w.s.usage.consumeCalls.length, b.access.billing, b.access.remaining_today], [200, 50, 2450, 1, 0, 'coins', null], 'reserved and charged; the daily counter is never asked')
+  w = world({}, { tier: 'coins' }); out = await handleTrainer(w.d, 'u1', plain()); eq(out.status, 409, 'coins tier: confirmation')
+  const cb = (await handleTrainer(w.d, 'u1', req())).body as B; eq([cb.credits_charged, cb.access.billing, w.s.usage.consumeCalls.length], [50, 'coins', 0], 'coins tier: charged per message')
+  // a client cannot claim included billing: an "included" flag on a non-subscriber is ignored
+  w = world({}, { tier: 'coins' }); const acc = w.d.access; w.d.access = async (u) => ({ ...(await acc(u)), billing: 'included', daily_requests: 40, daily_media: 10 })
+  eq([(await handleTrainer(w.d, 'u1', plain())).status, w.s.usage.consumeCalls.length], [409, 0], 'included billing exists for subscribers only')
+  w = world({}, { tier: 'trial' }); const tb = (await handleTrainer(w.d, 'u1', plain())).body as B; eq([tb.access.billing, tb.access.remaining_today, w.s.usage.consumeCalls.length], [null, null, 0], 'trial: unchanged')
+})
+
+Deno.test('voice message / video honesty: with only an Anthropic key, audio and video are NOT analysed and the reply says so (no fake transcription)', async () => {
+  for (const tierOpts of [{ billing: 'included' as const }, { tier: 'coins' as Tier }, { tier: 'trial' as Tier }]) {
+    for (const [k, attachments, credits] of [['audio', aud(), 100], ['video', vid(), 500]] as Array<[string, unknown[], number]>) {
+      // the default routes send audio / video to Gemini; here the Gemini key is not configured (only Anthropic is)
+      let w = world({}, { mode: 'live', budget: true, configured: ['mock', 'anthropic'], provider: fixed(VALID({ chat_reply: 'سمعتك تقول إن ركبتك تعورك' })), ...tierOpts })
+      // (a) the file alone: no provider is called at all; a fixed honest note; nothing charged or consumed
+      let out = await handleTrainer(w.d, 'u1', req({ message: undefined, attachments, confirm_credits: credits })); let b = out.body as B
+      eq([out.status, w.s.calls, b.media, b.credits_charged], [200, 0, { received: [k], analyzed: [], note: b.chat_reply }, 0], k + ' alone: not sent anywhere, honest note')
+      ok(/ما قدرنا نحلله/.test(b.chat_reply), 'says it could not be analysed'); eq([w.s.usage.requests, w.s.trial.used, w.s.balance], [0, 0, 2500], 'nothing consumed')
+      // (b) the file with a written message: only the TEXT goes to Anthropic; the prompt tells the model it has no file; the note is kept
+      //     (default routes: the media route names Gemini, which has no key, so the TEXT route answers the written message)
+      w = world({}, { mode: 'live', budget: true, configured: ['mock', 'anthropic'], provider: fixed(VALID({ chat_reply: 'نصيحة عامة' })), ...tierOpts })
+      out = await handleTrainer(w.d, 'u1', req({ attachments, confirm_credits: credits })); b = out.body as B
+      eq([out.status, w.s.called, w.s.reqs[0].model, w.s.reqs[0].media, b.media.analyzed, b.credits_charged], [200, ['anthropic'], 'claude-haiku-5-5', undefined, [], 0], k + ' + text: the media never reaches Anthropic, nothing is charged')
+      eq([w.s.usage.requests, w.s.usage.media, w.s.balance], [0, 0, 2500], 'no unit and no coins are kept for a file that was not analysed')
+      ok(b.media.note && w.s.reqs[0].system.includes('NOT provided to you') && w.s.reqs[0].system.includes('do not describe or assess its contents'), 'the model is told it has no file')
+    }
+  }
+  ok(!canHandle('anthropic', 'audio') && !canHandle('anthropic', 'video') && canHandle('anthropic', 'image') && canHandle('gemini', 'audio') && canHandle('gemini', 'video'), 'capability matrix')
+})
+
+Deno.test('prompt caching split: the stable part is identical across requests and candidates; the library list comes last', () => {
+  const o = { persona: 'rashid' as const, tone: 'friendly' as const, language: 'ar' as const, environment: 'gym' as const, tier: 'subscriber' as const, nutrition: true, medicalFlag: false, attached: null, mediaProvided: false }
+  const a = systemPromptParts({ ...o, candidates: parseCandidates(LIB.slice(0, 2)) }), b = systemPromptParts({ ...o, candidates: parseCandidates(LIB.slice(3, 6)) }), none = systemPromptParts({ ...o, candidates: [] })
+  ok(a.stable === b.stable && a.stable === none.stable, 'the cacheable prefix does not depend on the candidates'); ok(a.variable !== b.variable && a.variable.includes('bench-press') && !a.stable.includes('bench-press'), 'the candidates are only in the tail')
+  ok(none.variable.includes('there is NO exercise available'), 'empty library: said in the tail'); eq(systemPrompt({ ...o, candidates: parseCandidates(LIB.slice(0, 2)) }), joinSystem(a), 'systemPrompt = stable + tail')
+  ok(joinSystem(a).endsWith(a.variable) && a.stable.includes('EXERCISE LIBRARY RULE') && a.stable.includes('Output format'), 'rules and format are in the prefix, the list is last')
+  const t = systemPromptParts({ ...o, tier: 'trial', nutrition: false }); eq(t.variable, '', 'trial / coins: the whole prompt is the stable prefix'); ok(!/\d{4}-\d{2}-\d{2}|request_id/.test(a.stable), 'no timestamp or id in the prefix')
+  ok(a.stable.length / 3.2 > 512, 'longer than the 512-token minimum cacheable prefix of Claude Haiku 5.5 / Sonnet 5.5')
+})
+
+Deno.test('live core passes the split prompt to the provider and caps short answers with room for thinking', async () => {
+  let w = inc({ mode: 'live', budget: true, provider: fixed(VALID()) }); await handleTrainer(w.d, 'u1', plain())
+  const r = w.s.reqs[0]; ok(r.systemParts && joinSystem(r.systemParts) === r.system && r.systemParts.variable.includes('VORA LIBRARY (id'), 'systemParts handed to the adapter'); eq(r.maxTokens, 3000, 'subscriber: the route cap')
+  w = world({}, { tier: 'trial', mode: 'live', budget: true, provider: fixed(VALID()) }); await handleTrainer(w.d, 'u1', plain())
+  eq([w.s.reqs[0].maxTokens, SHORT_MAX_OUTPUT_TOKENS, w.s.reqs[0].systemParts?.variable], [1024, 1024, ''], 'short answers: 1024 output tokens (thinking counts toward the cap)')
 })

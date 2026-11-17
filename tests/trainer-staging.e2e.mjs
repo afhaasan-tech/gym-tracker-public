@@ -14,7 +14,7 @@
 //            select body from public.dev_mock_outbox where to_email = '<email>' order by id desc limit 1;
 //          and write it into  code-<label>
 //        - the script writes  need-SUB  containing the exact SQL to run, e.g.
-//            select public.subscription_activate('<uid>','pro', now()+interval '30 days', true, 'e2e-<random>');
+//            select public.subscription_activate('<uid>','monthly', now()+interval '30 days', true, 'e2e-<random>');
 //          run it (service role / SQL editor), then write anything (e.g. "ok") into  code-SUB
 //   4. The script prints PASS/FAIL per step and exits 1 on any failure.
 // Notes: device codes are rate limited (3 per 10 minutes per user): account A needs exactly 3, so do not restart within 10 minutes.
@@ -64,7 +64,7 @@ async function trustDevice(s, deviceSecret, label, name) {
 const trusted = async (s) => (await s.c.rpc('is_trusted_session')).data === true
 const balance = async (s) => { const { data, error } = await s.c.rpc('my_credit_balance'); assert.ifError(error); return data.total }
 const access = async (s) => { const { data, error } = await s.c.rpc('my_trainer_access'); assert.ifError(error); return data }
-const KEYS = 'access,chat_reply,conversation_id,credits_charged,locked,meal_card,media,mock,off_topic,replay,request_id,safety,voice_script,workout_card,workout_plan'
+const KEYS = 'access,chat_reply,conversation_id,credits_charged,locked,meal_card,media,mock,off_topic,replay,request_id,safety,upgrade,voice_script,workout_card,workout_plan'
 const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 const REDIRECT_AR = 'أنا مدربك الرياضي في VORA', REDIRECT_EN = "I'm your VORA fitness coach"
 
@@ -99,7 +99,7 @@ await step('T04', 'free account starts on tier "trial" (not started); readable w
 await step('T05', 'trial conversation works without confirmation and without spending credits', async () => {
   const r = await trainer(a1, { conversation_id: conv1, message: 'عطني تمرين صدر' }); assert.equal(r.status, 200, JSON.stringify(r.json))
   assert.equal(Object.keys(r.json).sort().join(','), KEYS); assert.equal(r.json.credits_charged, 0); assert.equal(r.json.mock, true); assert.ok(r.json.chat_reply.startsWith('[MOCK]'))
-  assert.ok(r.json.workout_card?.exercise_name_ar); assert.equal(r.json.access.tier, 'trial'); assert.equal(typeof r.json.access.trial_remaining, 'number')
+  assert.equal(r.json.workout_card, null, 'the free trial gets a short answer, no library card'); assert.ok(r.json.chat_reply.length <= 340); assert.ok(r.json.upgrade?.reason); assert.equal(r.json.access.tier, 'trial'); assert.equal(typeof r.json.access.trial_remaining, 'number')
   assert.equal(await balance(a1), startBalance, 'the wallet is untouched by the trial')
   const acc = await access(a1); assert.equal(acc.trial.started, true); assert.equal(acc.trial.conversation_id, conv1); assert.equal(acc.trial.remaining, r.json.access.trial_remaining)
 })
@@ -132,37 +132,36 @@ await step('T09', 'trial limit: after the last message every request is 402, in 
 
 // ------------------------------------------------------------------ subscription (activated by the operator)
 const idem = 'e2e-' + randomBytes(6).toString('hex')
-if (a1) await need('SUB', `select public.subscription_activate('${a1.id}','pro', now()+interval '30 days', true, '${idem}');`)
+if (a1) await need('SUB', `select public.subscription_activate('${a1.id}','monthly', now()+interval '30 days', true, '${idem}');`)
 let subBalance
-await step('T10', 'after activation: tier subscriber (pro, nutrition included), monthly credits granted once', async () => {
-  const acc = await access(a2); assert.equal(acc.tier, 'subscriber', JSON.stringify(acc)); assert.equal(acc.plan_key, 'pro'); assert.equal(acc.nutrition, true); assert.equal(acc.auto_renew, true)
-  subBalance = await balance(a2); assert.ok(subBalance > startBalance, 'subscription credits were granted')
+await step('T10', 'after activation: tier subscriber (monthly, nutrition + library), usage is INCLUDED with a daily cap and NO coins are granted', async () => {
+  const acc = await access(a2); assert.equal(acc.tier, 'subscriber', JSON.stringify(acc)); assert.equal(acc.plan_key, 'monthly'); assert.equal(acc.nutrition, true); assert.equal(acc.auto_renew, true); assert.equal(acc.library, true); assert.equal(acc.billing, 'included'); assert.ok(acc.daily_requests >= 1)
+  subBalance = await balance(a2); assert.equal(subBalance, startBalance, 'no coins are granted automatically')
   const { data, error } = await a2.c.from('subscriptions').select('id,plan_key,status,auto_renew').eq('status', 'active'); assert.ifError(error); assert.equal(data.length, 1)
   assert.ok((await a2.c.from('subscriptions').select('provider_card_token')).error, 'token columns are not readable')
 })
-await step('T11', 'subscriber message: 409 confirmation (50) -> confirmed -> charged exactly 50; replay is free', async () => {
+await step('T11', 'subscriber message: included in the plan (no confirmation, no coins), library card, counted against the daily cap; replay is free', async () => {
   const k = 'e2e-' + randomUUID(), body = { conversation_id: convSub, message: 'عطني تمرين أكتاف', idempotency_key: k }
-  const c = await trainer(a2, body); assert.equal(c.status, 409); assert.deepEqual(c.json, { error: 'confirmation_required', credits: 50, operation: 'trainer_message' })
-  assert.equal((await trainer(a2, { ...body, confirm_credits: 49 })).status, 409, 'a tampered price is refused'); assert.equal(await balance(a2), subBalance)
-  const r = await trainer(a2, { ...body, confirm_credits: 50 }); assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.credits_charged, 50); assert.deepEqual(r.json.access, { tier: 'subscriber', nutrition: true, trial_remaining: null })
-  assert.equal(await balance(a2), subBalance - 50)
-  const again = await trainer(a2, { ...body, confirm_credits: 50 }); assert.equal(again.json.replay, true); assert.equal(await balance(a2), subBalance - 50, 'no double charge')
+  const before = (await a2.c.rpc('my_trainer_usage')).data
+  const r = await trainer(a2, body); assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.credits_charged, 0); assert.equal(r.json.access.tier, 'subscriber'); assert.equal(r.json.access.billing, 'included')
+  assert.equal(r.json.workout_card?.source, 'library'); assert.ok(r.json.workout_card.exercise_id)
+  const after = (await a2.c.rpc('my_trainer_usage')).data; assert.equal(JSON.stringify(after) !== JSON.stringify(before), true, 'usage counted')
+  const again = await trainer(a2, body); assert.equal(again.json.replay, true); assert.deepEqual((await a2.c.rpc('my_trainer_usage')).data, after, 'a replay is not counted twice')
+  assert.equal(await balance(a2), subBalance, 'the wallet is untouched')
 })
-await step('T12', 'image costs 300 and the mock says it cannot inspect media (analyzed stays empty)', async () => {
-  const k = 'e2e-' + randomUUID(), body = { conversation_id: convSub, message: 'شوف وضعيتي بالصورة', attachments: [{ kind: 'image', mime_type: 'image/png', data_base64: PNG_1X1 }], idempotency_key: k }
-  const c = await trainer(a2, body); assert.equal(c.status, 409); assert.deepEqual(c.json, { error: 'confirmation_required', credits: 300, operation: 'trainer_image' })
-  const r = await trainer(a2, { ...body, confirm_credits: 300 }); assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.credits_charged, 300); assert.equal(r.json.mock, true)
+await step('T12', 'image: the mock says it cannot inspect media (analyzed stays empty); nothing is charged', async () => {
+  const body = { conversation_id: convSub, message: 'شوف وضعيتي بالصورة', attachments: [{ kind: 'image', mime_type: 'image/png', data_base64: PNG_1X1 }] }
+  const r = await trainer(a2, body); assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.credits_charged, 0); assert.equal(r.json.mock, true)
   assert.deepEqual(r.json.media.received, ['image']); assert.deepEqual(r.json.media.analyzed, []); assert.ok(r.json.media.note); assert.ok(/ما أقدر أفتح أو أحلل/.test(r.json.chat_reply), 'the reply says the file could not be inspected')
-  assert.equal(await balance(a2), subBalance - 350)
 })
 await step('T13', 'attachment rules: wrong type 400, oversize 413, two files 400 (nothing charged)', async () => {
-  const base = { conversation_id: convSub, confirm_credits: 300 }
+  const base = { conversation_id: convSub }
   const gif = await trainer(a2, { ...base, attachments: [{ kind: 'image', mime_type: 'image/gif', data_base64: PNG_1X1 }] }); assert.equal(gif.status, 400); assert.equal(gif.json.error, 'attachment_type_not_supported')
   const big = await trainer(a2, { ...base, attachments: [{ kind: 'image', mime_type: 'image/png', data_base64: PNG_1X1.slice(0, 16) + 'A'.repeat(5_600_000) }] }); assert.equal(big.status, 413); assert.equal(big.json.error, 'attachment_too_large')
   const two = await trainer(a2, { ...base, attachments: Array(2).fill({ kind: 'image', mime_type: 'image/png', data_base64: PNG_1X1 }) }); assert.equal(two.status, 400); assert.equal(two.json.error, 'invalid_input')
-  assert.equal(await balance(a2), subBalance - 350)
+  assert.equal(await balance(a2), subBalance)
 })
-await step('T14', 'pro includes nutrition (meal card) and full plans (workout_plan)', async () => {
+await step('T14', 'the subscription includes nutrition (meal card) and full plans built from the library', async () => {
   const meal = await trainer(a2, { conversation_id: convSub, message: 'عطني وصفة عشا', confirm_credits: 50 }); assert.equal(meal.status, 200, JSON.stringify(meal.json)); assert.ok(meal.json.meal_card?.ingredients?.length >= 1); assert.deepEqual(meal.json.locked, [])
   const plan = await trainer(a2, { conversation_id: convSub, message: 'a 3 day plan please', language: 'en', confirm_credits: 50 }); assert.equal(plan.status, 200); assert.ok(plan.json.workout_plan?.days?.length >= 1); assert.deepEqual(plan.json.locked, [])
 })

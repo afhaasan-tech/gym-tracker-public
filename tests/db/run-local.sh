@@ -47,3 +47,8 @@ PORT=$PORT bash "$HERE/tests/db/purchases-concurrency.sh"
 
 echo "--- exercise library + monthly/yearly plans"
 psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/exercise-library.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+
+echo "--- included usage (no automatic coins, daily caps)"
+psql -h /tmp -p $PORT -U postgres -d postgres -q -t -A -f "$HERE/tests/db/included-usage.test.sql" 2>&1 | grep -E "^(PASS|FAIL|TOTAL)|ERROR"
+echo "--- included usage concurrency"
+PORT=$PORT bash "$HERE/tests/db/included-usage-concurrency.sh"

@@ -48,8 +48,8 @@ insert into auth.users(id,email,email_confirmed_at) values
 
 -- ================= A. the catalogue exactly as the migrations leave it
 select t_count($$select 1 from jsonb_array_elements(public_plans())$$,2,'exactly two plans are on sale');
-select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e @> '{"key":"monthly","name_ar":"شهري","name_en":"Monthly","period_days":30,"monthly_credits":10000,"includes_nutrition":true,"provisional":true}' and (e->>'price_kwd')::numeric = 7.000$$,1,'monthly: 30 days, nutrition, provisional placeholder price');
-select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e @> '{"key":"yearly","name_ar":"سنوي","name_en":"Yearly","period_days":365,"monthly_credits":120000,"includes_nutrition":true,"provisional":true}' and (e->>'price_kwd')::numeric = 70.000$$,1,'yearly: 365 days, nutrition, provisional placeholder price');
+select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e @> '{"key":"monthly","name_ar":"شهري","name_en":"Monthly","period_days":30,"monthly_credits":null,"ai_daily_requests":40,"ai_daily_media":10,"includes_nutrition":true,"provisional":true}' and (e->>'price_kwd')::numeric = 7.000$$,1,'monthly: 30 days, nutrition, provisional placeholder price');
+select t_count($$select 1 from jsonb_array_elements(public_plans()) e where e @> '{"key":"yearly","name_ar":"سنوي","name_en":"Yearly","period_days":365,"monthly_credits":null,"ai_daily_requests":40,"ai_daily_media":10,"includes_nutrition":true,"provisional":true}' and (e->>'price_kwd')::numeric = 70.000$$,1,'yearly: 365 days, nutrition, provisional placeholder price');
 select t_count($$select 1 where public_plans()->0 ?& array['key','name_ar','name_en','price_kwd','monthly_credits','provisional','pause_eligible','includes_nutrition','period_days']$$,1,'public_plans keeps every earlier key and adds period_days');
 select t_count($$select 1 where public_plans()->0->>'key' = 'monthly' and public_plans()->1->>'key' = 'yearly'$$,1,'monthly first, yearly second');
 select t_count($$select 1 from plans where key in ('essential','pro','elite','vip') and not enabled and period_days = 30$$,4,'the four old plans are kept but switched off');
@@ -116,9 +116,9 @@ select t_count($$select 1 where purchase_lookup(t_id('y5'), null) @> '{"kind":"s
 select t_su();
 select t_count($$select 1 from subscriptions where user_id='f7000000-0000-4000-8000-000000000004' and status='active' and plan_key='monthly' and not auto_renew and abs(extract(epoch from current_period_end - (now() + interval '30 days'))) < 60$$,1,'monthly subscription ends in 30 days, auto_renew false');
 select t_count($$select 1 from subscriptions where user_id='f7000000-0000-4000-8000-000000000005' and status='active' and plan_key='yearly' and not auto_renew and abs(extract(epoch from current_period_end - (now() + interval '365 days'))) < 60$$,1,'yearly subscription ends in 365 days, auto_renew false');
-select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000004' and source='subscription' and amount=10000$$,1,'monthly: 10,000 coins granted once');
-select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000005' and source='subscription'$$,1,'yearly: exactly one grant');
-select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000005' and source='subscription' and amount=120000$$,1,'yearly: 120,000 coins granted once at activation');
+select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000004' and source='subscription'$$,0,'monthly: no coins are granted automatically (AI use is included per plan)');
+select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000005' and source='subscription'$$,0,'yearly: no automatic grant');
+select t_count($$select 1 from credit_ledger where user_id='f7000000-0000-4000-8000-000000000005' and source='subscription' and amount=120000$$,0,'yearly: no 120,000-coin grant at activation');
 -- 6: a subscription on the old "pro" plan that was bought before the plan left the shop
 insert into subscriptions(user_id, plan_key, status, current_period_start, current_period_end, auto_renew) values ('f7000000-0000-4000-8000-000000000006', 'pro', 'active', now() - interval '10 days', now() + interval '20 days', false);
 

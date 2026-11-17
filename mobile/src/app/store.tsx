@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase'
 import { c, fs } from '../lib/theme'
 
 type Pack = { key: string; name_ar: string; name_en: string; coins: number; price_kwd: number }
-type Plan = { key: string; name_ar: string; name_en: string; price_kwd: number; monthly_credits: number | null; pause_eligible: boolean; includes_nutrition?: boolean; period_days?: number }
+type Plan = { key: string; name_ar: string; name_en: string; price_kwd: number; monthly_credits: number | null; pause_eligible: boolean; includes_nutrition?: boolean; period_days?: number; ai_daily_requests?: number | null; ai_daily_media?: number | null }
 const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB')
 
 export default function Store() {
@@ -86,7 +86,7 @@ export default function Store() {
           <T bold size={fs.xl} style={{ color: c.accent }}>{Number(p.price_kwd).toFixed(3)} KWD <T muted size={fs.sm}>/ {Number(p.period_days ?? 30) >= 360 ? L('سنة', 'year') : L('شهر', 'month')}</T></T>
           <View style={{ gap: 2 }}>
             <T size={fs.sm}>• {L('مدربك الشخصي بالذكاء الاصطناعي', 'Your AI personal trainer')}</T>
-            <T size={fs.sm}>• {p.monthly_credits ? `${new Intl.NumberFormat('en-US').format(p.monthly_credits)} ${L('ڤورا كوينز شهرياً', 'VORA Coins / month')}` : L('استخدام عادل (حدود قابلة للتعديل)', 'Fair use (configurable limits)')}</T>
+            <T size={fs.sm}>• {p.monthly_credits ? `${new Intl.NumberFormat('en-US').format(p.monthly_credits)} ${L('ڤورا كوينز شهرياً', 'VORA Coins / month')}` : p.ai_daily_requests ? L(`المدرب مشمول: لين ${p.ai_daily_requests} طلب باليوم (حد مؤقت)`, `Trainer included: up to ${p.ai_daily_requests} requests a day (provisional cap)`) : L('استخدام عادل (حدود قابلة للتعديل)', 'Fair use (configurable limits)')}</T>
             <T size={fs.sm}>• {p.includes_nutrition ? L('يشمل إرشاد التغذية', 'Includes nutrition guidance') : L('بدون إرشاد التغذية', 'No nutrition guidance')}</T>
             <T size={fs.sm}>• {L('مكتبة التمارين المتقدمة والخطط الشخصية', 'Advanced exercise library and personal plans')}</T>
           </View>
